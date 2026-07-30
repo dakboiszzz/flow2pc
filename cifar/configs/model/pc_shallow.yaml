@@ -1,0 +1,4 @@
+_target_: repc.pc.TimePolyGaussianPC
+K: 512
+D: null  # injected from the datamodule by train.py
+order: 4

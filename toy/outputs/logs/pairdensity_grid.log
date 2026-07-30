@@ -1,0 +1,1 @@
+=== world=A model_variant=pair_endpoint model.M=32 trainer.max_steps=30000 logger.wandb.name=b0-pe-M32 ===

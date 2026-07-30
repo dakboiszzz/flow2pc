@@ -1,0 +1,5 @@
+teacher ale_tr 1.000 | testing tau-weighting beta
+ beta  err_epi  err_ale  ale_tr  veldef
+    0    0.147   64.517  42.869  0.0160  (379s)
+    1    0.127   18.942  13.560  0.0152  (480s)
+    2    0.125    0.203   0.961  0.0145  (470s)

@@ -1,0 +1,6 @@
+_target_: repc.general_pc.GeneralPC
+D: null  # injected from the datamodule by train.py
+R: 8
+S: 8
+order: 8
+seed: 0

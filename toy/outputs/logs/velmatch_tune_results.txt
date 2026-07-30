@@ -1,0 +1,12 @@
+teacher: epi_tr 4.600, ale_tr 1.000
+config                              err_epi  err_ale  ale_tr  veldef
+baseline beta0 M32 15k lr1e-3         0.296   15.422   10.77   0.108  (43s)
+early-tau beta2 M32 15k               0.202    3.854    2.62   0.100  (41s)
+early-tau beta4 M32 40k               0.344   31.228   16.44   0.040  (109s)
+beta2 M64 40k lr5e-4                  0.218    0.459    0.54   0.074  (108s)
+beta3 M64 80k lr5e-4                  0.163    0.363    0.64   0.026  (217s)
+teacher epi_tr 4.600 ale_tr 1.000
+β3 M64 150k lr5e-4   err_epi 0.123 err_ale 0.250 ale_tr 0.75 veldef 0.005 (418s)
+β2 M96 150k lr3e-4   err_epi 0.134 err_ale 0.285 ale_tr 0.72 veldef 0.020 (430s)
+
+RECIPE (one-loss velocity, Plan A): early-tau beta~2-3, M>=64, >=150k steps, lr 5e-4 cosine. Recovers epi 0.12 + ale 0.25, veldef 0.005, still improving.

@@ -1,0 +1,15 @@
+=== world=A model_variant=pair_path data.rho_e=0.1 logger.wandb.name=b0-rhoe0.1 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.1, 'rho_ci': 0.0, 'err_cross': 1.2628982067108154, 'err_ale': 0.22174899280071259, 'err_total': 0.08201383799314499, 'epi_trace_model': 0.589226245880127, 'epi_trace_true': 0.4088609218597412}
+=== world=A model_variant=pair_path data.rho_e=0.25 logger.wandb.name=b0-rhoe0.25 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.25, 'rho_ci': 0.0, 'err_cross': 0.4211209714412689, 'err_ale': 0.21320873498916626, 'err_total': 0.05627824366092682, 'epi_trace_model': 1.0242937803268433, 'epi_trace_true': 1.0234556198120117}
+=== world=A model_variant=pair_path data.rho_e=0.75 logger.wandb.name=b0-rhoe0.75 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.75, 'rho_ci': 0.0, 'err_cross': 0.21701666712760925, 'err_ale': 0.6512656211853027, 'err_total': 0.01702871546149254, 'epi_trace_model': 2.416104316711426, 'epi_trace_true': 3.080688714981079}
+=== world=A model_variant=pair_path data.rho_e=0.9 logger.wandb.name=b0-rhoe0.9 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.9, 'rho_ci': 0.0, 'err_cross': 0.29312416911125183, 'err_ale': 2.549837112426758, 'err_total': 0.009961976669728756, 'epi_trace_model': 2.6180062294006348, 'epi_trace_true': 3.7029178142547607}
+=== world=A model_variant=pair_path data.rho_ci=0.1 logger.wandb.name=b0-rhoci0.1 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.5, 'rho_ci': 0.1, 'err_cross': 0.17849646508693695, 'err_ale': 0.26625585556030273, 'err_total': 0.02925756387412548, 'epi_trace_model': 1.9577789306640625, 'epi_trace_true': 2.256681442260742}
+=== world=A model_variant=pair_path data.rho_ci=0.25 logger.wandb.name=b0-rhoci0.25 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.5, 'rho_ci': 0.25, 'err_cross': 0.1832403540611267, 'err_ale': 0.3408409059047699, 'err_total': 0.025024278089404106, 'epi_trace_model': 2.1467947959899902, 'epi_trace_true': 2.5660958290100098}
+=== world=A model_variant=pair_path data.rho_ci=0.5 logger.wandb.name=b0-rhoci0.5 ===
+FINAL {'world': 'A', 'variant': 'pair_path', 'd': 4, 'rho_e': 0.5, 'rho_ci': 0.5, 'err_cross': 0.21933645009994507, 'err_ale': 0.6610053777694702, 'err_total': 0.01807747781276703, 'epi_trace_model': 2.4086947441101074, 'epi_trace_true': 3.082526683807373}
+SWEEPS COMPLETE

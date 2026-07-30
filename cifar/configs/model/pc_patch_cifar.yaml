@@ -1,0 +1,7 @@
+_target_: repc.patch_pc.PatchDeepPC
+H: 32
+W: 32
+channels: 3
+patch: 2      # 2x2x3 = 12-dim Cholesky leaves (within the stability ceiling)
+S: 8
+order: 8

@@ -1,0 +1,11 @@
+# both remote (wandb) and local (csv) logging, as required
+wandb:
+  _target_: lightning.pytorch.loggers.WandbLogger
+  project: ${project_name}
+  name: ${task.name}-${now:%m%d-%H%M}
+  save_dir: ${paths.run_dir}
+  log_model: false
+csv:
+  _target_: lightning.pytorch.loggers.CSVLogger
+  save_dir: ${paths.run_dir}
+  name: csv

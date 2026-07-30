@@ -1,0 +1,11 @@
+name: distill
+lit_target: repc.lightning.distill_module.DistillModule
+lr: 1e-3
+# lightning checkpoint of the pretrained (frozen) flow — REQUIRED
+flow_ckpt: ???
+# model config used when the flow was trained (to rebuild the net)
+flow_model:
+  _target_: repc.flow.UNet
+  base: 64
+# optional PC checkpoint to warm-start from (lightning ckpt)
+warm_start: null

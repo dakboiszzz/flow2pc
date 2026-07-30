@@ -1,0 +1,6 @@
+teacher epi_tr 4.600 ale_tr 1.000 | s=0.3 M=128 steps=300000
+step       0: err_epi 0.9998 err_ale 3.0103 ale_tr 4.010 veldef 2.9402  (0s)
+step   25000: err_epi 0.2213 err_ale 0.6187 ale_tr 0.958 veldef 0.0673  (71s)
+step   50000: err_epi 0.1504 err_ale 0.8857 ale_tr 1.255 veldef 0.0233  (142s)
+step   75000: err_epi 0.1126 err_ale 1.2670 ale_tr 1.517 veldef 0.0140  (215s)
+Terminated

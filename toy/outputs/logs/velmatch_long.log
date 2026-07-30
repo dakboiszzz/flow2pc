@@ -1,0 +1,3 @@
+teacher epi_tr 4.600 ale_tr 1.000
+β3 M64 150k lr5e-4   err_epi 0.123 err_ale 0.250 ale_tr 0.75 veldef 0.005 (418s)
+β2 M96 150k lr3e-4   err_epi 0.134 err_ale 0.285 ale_tr 0.72 veldef 0.020 (430s)

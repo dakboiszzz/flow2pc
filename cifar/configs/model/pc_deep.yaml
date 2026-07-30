@@ -1,0 +1,5 @@
+_target_: repc.deep_pc.DeepPC
+H: 28
+W: 28
+S: 8
+order: 8

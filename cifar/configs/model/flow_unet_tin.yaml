@@ -1,0 +1,4 @@
+_target_: repc.flow.UNet
+base: 96
+in_ch: 3
+stages: 3

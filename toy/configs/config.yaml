@@ -1,0 +1,52 @@
+defaults:
+  - logger: default
+  - _self_
+
+seed: 0
+world: A                 # A = shared-hypothesis, B = independent
+model_variant: pair_path # endpoint | marginal_path | marginal_path_vel | pair_endpoint | pair_path
+lr: 1e-3
+oracle_samples: 1000000
+
+data:
+  d: 4
+  rho_e: 0.5
+  rho_ci: 0.0
+  total_var: 1.0
+  flow_seed: 0
+  batch_size: 512
+  val_n: 4096
+
+model:
+  M: 32
+  order: 3
+  time_mlp: false
+
+loss:
+  lambda_1d: 1.0
+  lambda_2d: 1.0
+  lambda_1v: 0.1   # velocity is a continuity regularizer (Benchmark 1); the
+  lambda_2v: 0.1   # pair DENSITY is what identifies the UQ split (Benchmark 0)
+  lambda_b: 0.2
+
+trainer:
+  _target_: lightning.Trainer
+  max_steps: 20000
+  accelerator: auto
+  devices: 1
+  val_check_interval: 2000
+  check_val_every_n_epoch: null
+  limit_val_batches: 3
+  log_every_n_steps: 100
+  enable_progress_bar: false
+  gradient_clip_val: 1.0
+  default_root_dir: ${paths.run_dir}
+
+paths:
+  run_dir: ${hydra:runtime.output_dir}
+
+hydra:
+  run:
+    dir: outputs/runs/bench0/${now:%Y-%m-%d_%H-%M-%S-%f}
+  job:
+    chdir: false

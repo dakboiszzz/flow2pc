@@ -1,0 +1,5 @@
+teacher: epistemic trace 4.600, aleatoric trace 1.000
+mode              losses   err_epi   err_ale  epi_tr  vel_defect
+density_only           1     0.095     0.018    5.01       0.518 (36s)
+velocity_only          1     0.415     6.329    5.38       0.104 (41s)
+density+vel            2     0.008     0.011    4.62       0.097 (55s)

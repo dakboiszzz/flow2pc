@@ -1,0 +1,9 @@
+_target_: repc.patch_pc.PatchDeepPC
+H: 32
+W: 32
+channels: 3
+patch: 2
+S: 8
+order: 8
+time_mlp: true
+structure: clt   # region graph = Chow-Liu tree learned from data (HCLT-style)

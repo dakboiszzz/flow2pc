@@ -1,0 +1,6 @@
+teacher epi_tr 4.600 ale_tr 1.000
+variant                       err_epi  err_ale  ale_tr  veldef
+full-grad 15k                   0.182    0.887    0.98   0.168  (46s)
+stop-grad 15k                   0.291    0.342    1.23   0.664  (35s)
+full-grad 40k                   0.161    1.684    1.51   0.072  (111s)
+Terminated

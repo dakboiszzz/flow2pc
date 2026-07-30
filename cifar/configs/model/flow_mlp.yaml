@@ -1,0 +1,4 @@
+_target_: repc.flow.MLPFlow
+D: null  # injected from the datamodule by train.py
+hidden: 512
+t_dim: 128

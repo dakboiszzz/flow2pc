@@ -1,0 +1,23 @@
+defaults:
+  - task: flow
+  - data: mnist
+  - model: flow_unet
+  - trainer: default
+  - logger: default
+  - _self_
+
+seed: 0
+project_name: recompile-probabilistic
+
+# every run gets its own directory: outputs/runs/<task>/<timestamp>
+paths:
+  out_root: ${hydra:runtime.cwd}/outputs
+  run_dir: ${hydra:runtime.output_dir}
+  data_dir: ${hydra:runtime.cwd}/data
+
+hydra:
+  run:
+    dir: ${paths.out_root}/runs/${task.name}/${now:%Y-%m-%d_%H-%M-%S-%f}
+  sweep:
+    dir: ${paths.out_root}/multirun/${task.name}/${now:%Y-%m-%d_%H-%M-%S}
+    subdir: ${hydra.job.num}

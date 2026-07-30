@@ -1,0 +1,13 @@
+(realistic neural teacher: velocity net ~ 270,848 FLOPs/eval)
+
+method                          NFE   FLOPs (neural teach)   wall-clock  exact?
+compiled PC                       0     0 (|PC|=480 edges)      0.122ms     YES
+MeanFlow (N=2000)             2,000            541,696,000     130.24ms no (MC)
+MeanFlow (N=20000)           20,000          5,416,960,000     233.60ms no (MC)
+flow-integ N=2000,K=20       40,000         10,833,920,000      32.81ms no (MC)
+flow-integ N=50000,K=100  5,000,000      1,354,240,000,000     622.24ms no (MC)
+
+NFE: MeanFlow (1/sample) < integration (K/sample) -- MeanFlow is the faster
+sampler, as designed. Both >> the PC, which is 0-NFE, exact, and amortized.
+(Toy wall-clock for integration is low only because its velocity is analytic;
+the FLOPs column uses a realistic neural teacher, where integration = K x MeanFlow.)

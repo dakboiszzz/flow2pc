@@ -1,0 +1,7 @@
+_target_: repc.patch_pc.PatchDeepPC
+H: 64
+W: 64
+channels: 3
+patch: 2      # 12-dim Cholesky leaves, 32x32 patch grid
+S: 8
+order: 8

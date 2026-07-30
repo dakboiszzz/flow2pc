@@ -1,0 +1,7 @@
+=== world=A model_variant=pair_endpoint data.d=16 model.M=96 trainer.max_steps=40000 logger.wandb.name=b0-d16-pe-M96 ===
+FINAL {'world': 'A', 'variant': 'pair_endpoint', 'd': 16, 'rho_e': 0.5, 'rho_ci': 0.0, 'err_cross': 0.44504833221435547, 'err_ale': 0.5360395908355713, 'err_total': 0.10374118387699127, 'epi_trace_model': 5.440618991851807, 'epi_trace_true': 8.952679634094238}
+=== world=A model_variant=pair_endpoint data.d=16 model.M=128 trainer.max_steps=40000 logger.wandb.name=b0-d16-pe-M128 ===
+FINAL {'world': 'A', 'variant': 'pair_endpoint', 'd': 16, 'rho_e': 0.5, 'rho_ci': 0.0, 'err_cross': 0.4288841187953949, 'err_ale': 0.5213503241539001, 'err_total': 0.09786760807037354, 'epi_trace_model': 5.668301105499268, 'epi_trace_true': 8.952679634094238}
+=== world=A model_variant=marginal_path_vel data.d=16 model.M=128 trainer.max_steps=40000 logger.wandb.name=b0-d16-mpv-M128 ===
+FINAL {'world': 'A', 'variant': 'marginal_path_vel', 'd': 16, 'rho_e': 0.5, 'rho_ci': 0.0, 'err_cross': 0.49413198232650757, 'err_ale': 0.4955097734928131, 'err_total': 0.06520263850688934, 'epi_trace_model': 6.716963291168213, 'epi_trace_true': 8.952679634094238}
+CAPACITY COMPLETE
