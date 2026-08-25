@@ -1,3 +1,0 @@
-MeanFlow UQ (N=200k samp): err_epi 0.062 err_ale 0.012  [vs ground truth]
-PC-from-MeanFlow (exact, 0 NFE): err_epi 0.699 err_ale 0.449  [vs MeanFlow's own UQ]  (374s)
-PC-from-MeanFlow vs GROUND TRUTH: err_epi 0.730 err_ale 0.451

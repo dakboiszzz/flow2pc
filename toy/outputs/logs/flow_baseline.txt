@@ -1,9 +1,0 @@
-teacher epi_tr 4.600 ale_tr 1.000
-method                        err_epi  err_ale          NFE    time
-flow-integ N=2000 K=20           0.030    0.148       80,000    0.2s
-flow-integ N=10000 K=50           0.013    0.057    1,000,000    0.3s
-flow-integ N=50000 K=100          0.011    0.024   10,000,000    0.9s
-flow-integ N=200000 K=200          0.003    0.016   80,000,000   12.9s
-compiled PC (exact moments)        ~0       ~0            0 <0.001s
-
-(PC error vs ground truth is set by the reconfiguration loss, not by sampling -- and it is achieved at ZERO integration cost.)

@@ -1,66 +1,80 @@
-# flow2pc
+# Flow2PC
 
-Recompiling a pretrained flow-matching model into a **probabilistic circuit
-(PC)**: tractable exact inference (likelihood, moments, uncertainty
-decomposition) from a model you only need to *distill*, not retrain.
+Flow2PC distills a pretrained flow-matching model into a time-indexed
+probabilistic circuit (PC). The PC provides direct samples and exact
+log-likelihoods at every time along the learned path.
 
-Two parts:
+## Method
 
-| dir | what | scale |
-|---|---|---|
-| [`toy/`](toy/) | **Replica-Flow2PC** — compile a two-replica (pair) flow teacher into a synchronized pair PC for exact aleatoric/epistemic uncertainty decomposition; observability theory + 5 benchmarks | analytic teachers, d ≤ 32 |
-| [`cifar/`](cifar/) | **Recompile-Probabilistic** — recompile image flow/diffusion teachers into deep PCs (Monarch/HCLT-style region graphs) with a single velocity-matching loss | MNIST / CIFAR-10 / TinyImageNet |
+For a data sample `x`, Gaussian noise `z0`, and time `t`:
 
-## Method in one paragraph
-
-A time-indexed PC with Gaussian leaves (polynomial or time-MLP paths, boundary
-`p_0 = N(0, I)` structural) and time-independent sum weights induces a velocity
-field by three rules — leaf `u = μ′ + (σ′/σ)(z − μ)`, product = concatenation,
-sum = responsibility-weighted average — and satisfies the continuity equation
-by construction. Matching this velocity to a frozen teacher's field
-(`E‖U − V‖²`) *reconfigures* the flow into the PC, with a Grönwall/Wasserstein
-error certificate. For uncertainty decomposition the student is a **pair** PC
-`Q²(z₁,z₂) = Σ_h π_h q_h(z₁) q_h(z₂)` (only the hypothesis channel shared):
-`Σ_epi = Cov_h(μ_h)`, `Σ_ale = E_h[diag σ_h²]` are then exact reads off the
-parameters — 0-NFE, no sampling.
-
-Final training objective (both parts): `L = L_vel + λ·L_density` (λ ≈ 0.3,
-pathwise). The velocity term preserves the teacher's dynamics; the density term
-supplies the state information the velocity loss provably under-observes — see
-[`toy/docs/asymmetry.md`](toy/docs/asymmetry.md) for the observability
-analysis and the 5-seed ablation.
-
-## Key toy result (5 seeds, matched compute)
-
-| loss | err_epi | err_ale | velocity defect |
-|---|---|---|---|
-| velocity only | 0.093 | 1.49 ± 2.15 (drifts) | **0.009** |
-| density only | 0.021 | 0.008 | 0.105 |
-| **velocity + density (λ=0.3)** | **0.0013** | **0.0010** | 0.011 |
-
-The compiled PC returns exact moments at 0 NFE (~0.12 ms, 480-edge circuit)
-vs. Monte-Carlo flow integration (K NFE/sample) or MeanFlow (1 NFE/sample).
-
-## Quickstart
-
-```bash
-conda env create -f cifar/requirements.txt   # or use an env with torch>=2.1
-
-# toy: verification battery + the decisive ablation
-cd toy
-pytest tests/ -q                      # 25 tests
-python run_ablation_seeds.py VD0.3    # velocity+density, 5 seeds
-python run_gramian.py                 # observability Gramian verification
-
-# cifar: pretrain a flow, then recompile it into a PC
-cd ../cifar
-python train.py task=flow data=cifar10 model=flow_unet_cifar
-python train.py task=distill data=cifar10 model=pc_patch_cifar \
-    task.flow_ckpt=outputs/runs/flow/<ts>/checkpoints/last.ckpt
+```text
+z_t = (1 - t) z0 + t x
+L = E ||u_pc(z_t, t) - u_flow(z_t, t)||²
 ```
 
-Each subdirectory has its own README with full usage.
+The PC uses Gaussian leaves whose means and log-scales are polynomial in time.
+Their parameterization gives `p_0 = N(0, I)`. Time-independent sum weights
+combine the leaf velocities into a valid PC velocity field.
 
-## License
+Two structures share the same API:
 
-MIT
+| Student | Structure |
+|---|---|
+| `gaussian` | shallow mixture of Gaussian product nodes |
+| `region` | hierarchical image region graph |
+
+```python
+pc.sample(num_samples, time)
+pc.log_prob(values, time)
+pc.sample_path(num_samples, times)
+pc.path_log_prob(path_values, times)
+```
+
+`sample_path` keeps the circuit choices and Gaussian noise fixed across time,
+producing a coupled trajectory through the PC marginals.
+
+## Usage
+
+Install with Python 3.11 or newer:
+
+```bash
+python -m pip install -e ".[dev]"
+```
+
+Train a flow teacher:
+
+```bash
+python train.py flow
+```
+
+Distill a region-graph PC:
+
+```bash
+python train.py distill \
+  --teacher-checkpoint outputs/runs/flow/<run>/checkpoints/last.pt \
+  --student region
+```
+
+Evaluate samples and exact likelihoods along the PC path:
+
+```bash
+python eval.py \
+  --run-dir outputs/runs/distill/<run> \
+  --times 0,0.25,0.5,0.75,1
+```
+
+Each run contains `config.json`, `metrics.csv`, and a self-describing checkpoint.
+Evaluation writes path metrics and one sample grid per requested time to
+`<run>/eval/`.
+
+## Layout
+
+```text
+train.py           flow training and PC distillation
+eval.py            path sampling and exact likelihood evaluation
+repc/flow.py       flow teacher
+repc/pc.py         shared path API and Gaussian PC
+repc/region_pc.py  hierarchical region-graph PC
+repc/data.py       MNIST loader
+```

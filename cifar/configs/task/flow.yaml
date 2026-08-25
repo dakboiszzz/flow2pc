@@ -1,4 +1,0 @@
-name: flow
-lit_target: repc.lightning.flow_module.FlowMatchingModule
-lr: 2e-4
-weight_decay: 0.0

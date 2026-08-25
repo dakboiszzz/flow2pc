@@ -1,8 +1,0 @@
-=== Benchmark 4: active identification (avg over 40 functions) ===
-acquisition   epi_var@10  epi_var@20  epi_var@40     %R_a
-infogain           0.038       0.010      0.0062      35%
-total              0.113       0.082      0.0065      50%
-variance           0.082       0.023      0.0065      50%
-random             0.175       0.056      0.0143      25%
-
-infogain leaves 0.010 reducible uncertainty at 20 queries vs total 0.082 (8.2x more); infogain spends 35% in R_a vs total 50% (R_a is 25% of the domain).

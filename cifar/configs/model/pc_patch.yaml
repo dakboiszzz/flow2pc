@@ -1,6 +1,0 @@
-_target_: repc.patch_pc.PatchDeepPC
-H: 28
-W: 28
-patch: 4
-S: 8
-order: 8

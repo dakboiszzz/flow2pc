@@ -1,8 +1,0 @@
-broaden=1.0 M=96 steps=300000 | teacher ale_tr 1.000
-step       0: err_epi 0.9998 err_ale 2.9915 ale_tr 3.992 veldef 3.0843 (0s)
-step   50000: err_epi 0.1292 err_ale 0.3343 ale_tr 0.666 veldef 0.0411 (196s)
-step  100000: err_epi 0.0941 err_ale 0.2705 ale_tr 0.729 veldef 0.0164 (386s)
-step  150000: err_epi 0.0858 err_ale 0.2523 ale_tr 0.748 veldef 0.0148 (534s)
-step  200000: err_epi 0.0850 err_ale 0.2441 ale_tr 0.756 veldef 0.0097 (682s)
-step  250000: err_epi 0.0850 err_ale 0.2405 ale_tr 0.760 veldef 0.0081 (826s)
-step  299999: err_epi 0.0850 err_ale 0.2394 ale_tr 0.761 veldef 0.0083 (970s)

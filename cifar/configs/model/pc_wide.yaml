@@ -1,5 +1,0 @@
-_target_: repc.wide_pc.WideDeepPC
-H: 28
-W: 28
-schedule: "392:32,98:16,1:8"
-order: 8

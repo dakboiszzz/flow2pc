@@ -1,5 +1,0 @@
-teacher: epistemic trace 4.600, aleatoric trace 1.000
-mode              losses   err_epi   err_ale   epi_tr(mdl/true)
-density_only           1     0.095     0.018     5.01/4.60     (37s)
-velocity_only          1     0.415     6.329     5.38/4.60     (42s)
-density+vel            2     0.008     0.011     4.62/4.60     (56s)
