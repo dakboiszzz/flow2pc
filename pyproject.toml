@@ -9,8 +9,14 @@ description = "Distill a flow-matching model into a time-indexed probabilistic c
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "networkx>=3.2",
+  "pyjuice==2.2.0",
+  "scipy>=1.15",
   "torch>=2.6",
+  "torchcfm==1.0.7",
+  "torchdiffeq>=0.2.5",
   "torchvision>=0.21",
+  "wandb>=0.25,<0.30",
 ]
 
 [project.optional-dependencies]

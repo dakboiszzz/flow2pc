@@ -3,7 +3,7 @@ import math
 import torch
 from torch import nn
 
-from repc.pc import ProbabilisticCircuit
+from repc.pc import ProbabilisticCircuit, discretized_gaussian_log_mass
 
 LOG_2PI = math.log(2.0 * math.pi)
 
@@ -117,6 +117,7 @@ class RegionGraphPC(ProbabilisticCircuit):
             )
 
         self.root_position = int(remap[root])
+        self.num_regions = offset
         channels = num_channels
         self.sum_logits = nn.ParameterList(
             [
@@ -145,22 +146,35 @@ class RegionGraphPC(ProbabilisticCircuit):
             device=time.device,
             dtype=time.dtype,
         )
+        if time.ndim > 0:
+            time = time[:, None]
         return time**powers, powers * time ** (powers - 1)
 
     def leaf_parameters(self, time: torch.Tensor):
         basis, derivative = self._time_basis(time)
-        mean = torch.einsum("dsp,p->ds", self.mean_coefficients, basis)
-        mean_dt = torch.einsum("dsp,p->ds", self.mean_coefficients, derivative)
-        log_scale = torch.einsum("dsp,p->ds", self.log_scale_coefficients, basis)
-        log_scale_dt = torch.einsum(
-            "dsp,p->ds", self.log_scale_coefficients, derivative
-        )
+        if time.ndim == 0:
+            mean = torch.einsum("dsp,p->ds", self.mean_coefficients, basis)
+            mean_dt = torch.einsum("dsp,p->ds", self.mean_coefficients, derivative)
+            log_scale = torch.einsum("dsp,p->ds", self.log_scale_coefficients, basis)
+            log_scale_dt = torch.einsum(
+                "dsp,p->ds", self.log_scale_coefficients, derivative
+            )
+        else:
+            mean = torch.einsum("dsp,bp->bds", self.mean_coefficients, basis)
+            mean_dt = torch.einsum("dsp,bp->bds", self.mean_coefficients, derivative)
+            log_scale = torch.einsum("dsp,bp->bds", self.log_scale_coefficients, basis)
+            log_scale_dt = torch.einsum(
+                "dsp,bp->bds", self.log_scale_coefficients, derivative
+            )
         return mean, mean_dt, log_scale, log_scale_dt
 
     def _leaf_log_prob(self, values: torch.Tensor, time: torch.Tensor):
         mean, _, log_scale, _ = self.leaf_parameters(time)
-        normalized = (values[:, :, None] - mean[None]) * torch.exp(-log_scale)[None]
-        return -0.5 * (normalized.square() + LOG_2PI) - log_scale[None]
+        if time.ndim == 0:
+            mean = mean[None]
+            log_scale = log_scale[None]
+        normalized = (values[:, :, None] - mean) * torch.exp(-log_scale)
+        return -0.5 * (normalized.square() + LOG_2PI) - log_scale
 
     def _circuit_log_prob(self, leaf_log_prob: torch.Tensor):
         batch_size = leaf_log_prob.shape[0]
@@ -186,6 +200,21 @@ class RegionGraphPC(ProbabilisticCircuit):
     def log_prob(self, values: torch.Tensor, time: torch.Tensor):
         return self._circuit_log_prob(self._leaf_log_prob(values, time))
 
+    def discrete_log_prob(
+        self,
+        values: torch.Tensor,
+        time: torch.Tensor,
+        num_bins: int = 256,
+    ) -> torch.Tensor:
+        mean, _, log_scale, _ = self.leaf_parameters(time)
+        leaf_log_mass = discretized_gaussian_log_mass(
+            values,
+            mean,
+            log_scale,
+            num_bins,
+        )
+        return self._circuit_log_prob(leaf_log_mass)
+
     def velocity(self, values: torch.Tensor, time: torch.Tensor):
         mean, mean_dt, _, log_scale_dt = self.leaf_parameters(time)
         with torch.enable_grad():
@@ -198,9 +227,11 @@ class RegionGraphPC(ProbabilisticCircuit):
                 leaf_log_prob,
                 create_graph=self.training,
             )[0]
-        leaf_velocity = mean_dt[None] + log_scale_dt[None] * (
-            values[:, :, None] - mean[None]
-        )
+        if time.ndim == 0:
+            mean = mean[None]
+            mean_dt = mean_dt[None]
+            log_scale_dt = log_scale_dt[None]
+        leaf_velocity = mean_dt + log_scale_dt * (values[:, :, None] - mean)
         return (flows * leaf_velocity).sum(dim=-1)
 
     @torch.no_grad()
@@ -221,18 +252,19 @@ class RegionGraphPC(ProbabilisticCircuit):
     ):
         weights = [torch.softmax(logits, dim=-1) for logits in self.sum_logits]
         root_weights = torch.softmax(self.root_logits, dim=0)
-        position_to_group = {
-            position: (group_index, row)
-            for group_index, group in enumerate(self.groups)
-            for row, position in enumerate(group["buffer_positions"])
-        }
         device = self.mean_coefficients.device
         dtype = self.mean_coefficients.dtype
-        leaf_channels = torch.empty(
-            num_samples,
-            self.dim,
+        region_channels = torch.full(
+            (num_samples, self.num_regions),
+            -1,
             device=device,
             dtype=torch.long,
+        )
+        region_channels[:, self.root_position] = torch.multinomial(
+            root_weights,
+            num_samples,
+            replacement=True,
+            generator=generator,
         )
         noise = torch.randn(
             num_samples,
@@ -242,26 +274,44 @@ class RegionGraphPC(ProbabilisticCircuit):
             generator=generator,
         )
         channels = self.num_channels
-        for sample_index in range(num_samples):
-            channel = torch.multinomial(
-                root_weights, 1, generator=generator
-            ).item()
-            stack = [(self.root_position, channel)]
-            while stack:
-                position, channel = stack.pop()
-                if position < self.num_leaves:
-                    leaf_channels[sample_index, position] = channel
-                    continue
-                group_index, row = position_to_group[position]
-                selected = torch.multinomial(
-                    weights[group_index][row, channel], 1, generator=generator
-                ).item()
-                split_index, remainder = divmod(selected, channels * channels)
-                left_channel, right_channel = divmod(remainder, channels)
-                child_left = getattr(self, f"child_left_{group_index}")
-                child_right = getattr(self, f"child_right_{group_index}")
-                stack.append((int(child_left[row, split_index]), left_channel))
-                stack.append((int(child_right[row, split_index]), right_channel))
+        channel_pairs = channels * channels
+        sample_indices = torch.arange(num_samples, device=device)[:, None]
+        for group_index in reversed(range(len(self.groups))):
+            group = self.groups[group_index]
+            positions = torch.tensor(group["buffer_positions"], device=device)
+            active_channels = region_channels[:, positions]
+            active = active_channels >= 0
+            if not active.any():
+                continue
+            rows = torch.arange(group["size"], device=device)[None]
+            probabilities = weights[group_index][
+                rows,
+                active_channels.clamp_min(0),
+            ]
+            selected = torch.multinomial(
+                probabilities.flatten(0, 1),
+                1,
+                generator=generator,
+            ).reshape_as(active_channels)
+            split_indices = torch.div(selected, channel_pairs, rounding_mode="floor")
+            remainders = selected.remainder(channel_pairs)
+            left_channels = torch.div(remainders, channels, rounding_mode="floor")
+            right_channels = remainders.remainder(channels)
+            child_left = getattr(self, f"child_left_{group_index}")
+            child_right = getattr(self, f"child_right_{group_index}")
+            left_positions = child_left[rows, split_indices]
+            right_positions = child_right[rows, split_indices]
+            expanded_samples = sample_indices.expand_as(active_channels)
+            region_channels[expanded_samples[active], left_positions[active]] = (
+                left_channels[active]
+            )
+            region_channels[expanded_samples[active], right_positions[active]] = (
+                right_channels[active]
+            )
+
+        leaf_channels = region_channels[:, : self.num_leaves]
+        if (leaf_channels < 0).any():
+            raise RuntimeError("incomplete top-down sample from region graph")
 
         variables = torch.arange(self.dim, device=device)[None]
         path = []
