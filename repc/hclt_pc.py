@@ -213,6 +213,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
         if self.time_conditioning == "fourier":
             scalar_time = time[:, None] if time.ndim > 0 else time[None]
             angular_frequencies = 2.0 * math.pi * self.time_frequencies
+            angles = scalar_time * angular_frequencies
             cos_term = (
                 torch.cos(angles) - 1.0
                 if self.fourier_zero_center

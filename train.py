@@ -4,10 +4,16 @@ import json
 import math
 import os
 import time
+import sys
 from collections import deque
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
+
+# Ensure local repository root takes precedence over any installed site-packages
+_REPO_ROOT = str(Path(__file__).resolve().parent)
+if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
+    sys.path.insert(0, _REPO_ROOT)
 
 import torch
 import wandb
@@ -36,6 +42,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--teacher-checkpoint", type=Path)
     parser.add_argument(
         "--pc-structure",
+        "--student-model",
+        dest="pc_structure",
         choices=("hclt", "pd", "gaussian"),
         default="hclt",
         help="student circuit backbone (HCLT is the literature-standard default)",
@@ -748,10 +756,18 @@ def gradient_norm(parameters) -> float:
 
 
 def wandb_tags(args: argparse.Namespace) -> list[str]:
-    automatic_tags = ["mnist", args.flow_matcher]
+    # Dynamically pull the dataset and teacher, falling back to original defaults
+    dataset = getattr(args, "dataset", "mnist")
+    teacher = getattr(args, "teacher_arch", args.flow_matcher)
+
+    automatic_tags = [dataset, teacher]
+
     if args.task == "flow":
-        automatic_tags.extend(("teacher", "torchcfm"))
+        automatic_tags.extend(("teacher", teacher))
     else:
+        # Dynamically pull the sampling strategy
+        sampling = getattr(args, "multimarginal_time_sampling", args.timestep_sampling)
+
         automatic_tags.extend(
             (
                 "student",
@@ -759,17 +775,19 @@ def wandb_tags(args: argparse.Namespace) -> list[str]:
                 args.pc_layer,
                 args.capacity_profile,
                 f"endpoint-{args.endpoint_pretraining}",
-                f"timesteps-{args.timestep_sampling}",
+                f"timesteps-{sampling}",
             )
         )
+
     extra_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
     return list(dict.fromkeys(automatic_tags + extra_tags))
 
 
 def artifact_name(args: argparse.Namespace) -> str:
+    dataset = getattr(args, "dataset", "mnist")
     if args.task == "flow":
-        return f"mnist-flow-teacher-{args.flow_matcher}"
-    return f"mnist-pc-student-{args.pc_structure}-{args.pc_layer}-{args.flow_matcher}"
+        return f"{dataset}-flow-teacher-{args.flow_matcher}"
+    return f"{dataset}-pc-student-{args.pc_structure}-{args.pc_layer}-{args.flow_matcher}"
 
 
 def main() -> None:
@@ -853,65 +871,70 @@ def main() -> None:
                 "time_order": args.time_order,
                 "polynomial_zero_center": args.polynomial_zero_center,
             }
-        else:
-            topology_path = args.hclt_topology
-            if args.hclt_topology_protocol == "iclr2022-categorical":
-                if topology_path is None:
-                    topology_path = (
-                        args.data_dir
-                        / "MNIST"
-                        / "hclt"
-                        / "topology_iclr2022_msb3_n60000.pt"
-                    )
-                raw_topology_data = MNIST(
-                    root=args.data_dir,
-                    train=True,
-                    download=True,
-                ).data.flatten(1)
-                parents, resolved_topology_config = (
-                    load_or_learn_iclr2022_hclt_topology(
-                        raw_topology_data,
-                        topology_path,
-                        device,
-                        sample_chunk_size=args.hclt_mi_sample_chunk_size,
-                    )
-                )
+        elif args.pc_structure == "hclt":
+            if args.dataset in ("knot", "ht206b1") and args.hclt_topology is None:
+                parents = [-1, 0]
+                resolved_topology_config = {"topology": "2d_chain"}
+                topology_path = run_dir / "topology_2d.pt"
             else:
-                topology_config = {
-                    "num_samples": args.hclt_samples,
-                    "num_bins": args.hclt_num_bins,
-                    "sigma": args.hclt_sigma,
-                    "chunk_size": args.hclt_chunk_size,
-                }
-                if args.validation_size:
-                    topology_config["validation_size"] = args.validation_size
-                if topology_path is None:
-                    sigma_label = str(args.hclt_sigma).replace(".", "p")
-                    topology_path = (
-                        args.data_dir
-                        / "MNIST"
-                        / "hclt"
-                        / (
-                            f"topology_x{args.hclt_samples}_"
-                            f"b{args.hclt_num_bins}_s{sigma_label}_"
-                            f"c{args.hclt_chunk_size}_seed{args.seed}.pt"
+                topology_path = args.hclt_topology
+                if args.hclt_topology_protocol == "iclr2022-categorical":
+                    if topology_path is None:
+                        topology_path = (
+                            args.data_dir
+                            / "MNIST"
+                            / "hclt"
+                            / "topology_iclr2022_msb3_n60000.pt"
+                        )
+                    raw_topology_data = MNIST(
+                        root=args.data_dir,
+                        train=True,
+                        download=True,
+                    ).data.flatten(1)
+                    parents, resolved_topology_config = (
+                        load_or_learn_iclr2022_hclt_topology(
+                            raw_topology_data,
+                            topology_path,
+                            device,
+                            sample_chunk_size=args.hclt_mi_sample_chunk_size,
                         )
                     )
-                topology_loader = mnist_loader(
-                    args.data_dir,
-                    train=True,
-                    batch_size=args.batch_size,
-                    num_workers=args.num_workers,
-                    validation_size=args.validation_size,
-                    split_seed=args.seed,
-                )
-                parents, resolved_topology_config = load_or_learn_hclt_topology(
-                    topology_loader,
-                    topology_path,
-                    device,
-                    topology_config,
-                    args.seed,
-                )
+                else:
+                    topology_config = {
+                        "num_samples": args.hclt_samples,
+                        "num_bins": args.hclt_num_bins,
+                        "sigma": args.hclt_sigma,
+                        "chunk_size": args.hclt_chunk_size,
+                    }
+                    if args.validation_size:
+                        topology_config["validation_size"] = args.validation_size
+                    if topology_path is None:
+                        sigma_label = str(args.hclt_sigma).replace(".", "p")
+                        topology_path = (
+                            args.data_dir
+                            / "MNIST"
+                            / "hclt"
+                            / (
+                                f"topology_x{args.hclt_samples}_"
+                                f"b{args.hclt_num_bins}_s{sigma_label}_"
+                                f"c{args.hclt_chunk_size}_seed{args.seed}.pt"
+                            )
+                        )
+                    topology_loader = mnist_loader(
+                        args.data_dir,
+                        train=True,
+                        batch_size=args.batch_size,
+                        num_workers=args.num_workers,
+                        validation_size=args.validation_size,
+                        split_seed=args.seed,
+                    )
+                    parents, resolved_topology_config = load_or_learn_hclt_topology(
+                        topology_loader,
+                        topology_path,
+                        device,
+                        topology_config,
+                        args.seed,
+                    )
             model_config = {
                 "name": "hclt",
                 "parents": parents,

@@ -1,6 +1,12 @@
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# Ensure local repository root takes precedence over any installed site-packages
+_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
+if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
+    sys.path.insert(0, _REPO_ROOT)
 
 import numpy as np
 import torch

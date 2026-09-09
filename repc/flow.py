@@ -25,9 +25,11 @@ class ALICFMTeacherWrapper(nn.Module):
         self,
         checkpoint_path: str | Path | nn.Module,
         num_marginals: int = 60,
+        map_to_interval: bool = True,
     ):
         super().__init__()
         self.num_marginals = num_marginals
+        self.map_to_interval = map_to_interval
         if isinstance(checkpoint_path, nn.Module):
             self.velocity_net = checkpoint_path
             return
@@ -41,6 +43,11 @@ class ALICFMTeacherWrapper(nn.Module):
         if isinstance(checkpoint, nn.Module):
             self.velocity_net = checkpoint
         elif isinstance(checkpoint, dict):
+            if (
+                checkpoint.get("time_format") == "global"
+                or checkpoint.get("model_config", {}).get("time_format") == "global"
+            ):
+                self.map_to_interval = False
             # Check for module in common keys
             for key in ("ot_cfm_model", "velocity_net", "model", "net"):
                 if key in checkpoint and isinstance(checkpoint[key], nn.Module):
@@ -96,24 +103,27 @@ class ALICFMTeacherWrapper(nn.Module):
         if time.ndim == 0:
             time = time.unsqueeze(0)
         time_col = time[:, None] if time.ndim == 1 else time
+        time_col = time_col.to(device=path_sample.device, dtype=path_sample.dtype)
 
-        # Map global time \in [0, 1] to interval I_k
         K = self.num_marginals
-        k_indices = torch.floor(time_col * (K - 1)).clamp(0, K - 2)
-        t_lower = k_indices / (K - 1)
-        t_upper = (k_indices + 1.0) / (K - 1)
-        interval_time = (time_col - t_lower) / (t_upper - t_lower)
+        if self.map_to_interval:
+            k_indices = torch.floor(time_col * (K - 1)).clamp(0, K - 2)
+            t_lower = k_indices / (K - 1)
+            t_upper = (k_indices + 1.0) / (K - 1)
+            time_input = (time_col - t_lower) / (t_upper - t_lower)
+        else:
+            time_input = time_col
 
         flat_sample = path_sample.flatten(1)
-        cat_input = torch.cat([flat_sample, interval_time], dim=-1)
+        cat_input = torch.cat([flat_sample, time_input], dim=-1)
 
         try:
             return self.velocity_net(cat_input)
         except TypeError:
             try:
-                return self.velocity_net(interval_time, path_sample)
+                return self.velocity_net(time_input, path_sample)
             except TypeError:
-                return self.velocity_net(path_sample, interval_time)
+                return self.velocity_net(path_sample, time_input)
 
 
 def build_teacher(config: dict) -> nn.Module:
@@ -121,6 +131,7 @@ def build_teacher(config: dict) -> nn.Module:
         return ALICFMTeacherWrapper(
             config["checkpoint_path"],
             num_marginals=config.get("num_marginals", 60),
+            map_to_interval=config.get("map_to_interval", True),
         )
     if config.get("name") != "torchcfm_unet":
         raise ValueError(f"unknown teacher architecture: {config.get('name')}")
