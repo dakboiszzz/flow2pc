@@ -7,6 +7,8 @@ _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
     sys.path.insert(0, _REPO_ROOT)
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch

@@ -106,16 +106,30 @@ class ALICFMTeacherWrapper(nn.Module):
         time_col = time_col.to(device=path_sample.device, dtype=path_sample.dtype)
 
         K = self.num_marginals
-        if self.map_to_interval:
-            k_indices = torch.floor(time_col * (K - 1)).clamp(0, K - 2)
-            t_lower = k_indices / (K - 1)
-            t_upper = (k_indices + 1.0) / (K - 1)
-            time_input = (time_col - t_lower) / (t_upper - t_lower)
-        else:
-            time_input = time_col
+        k_indices = torch.floor(time_col * (K - 1)).clamp(0, K - 2)
+        t_lower = k_indices / (K - 1)
+        t_upper = (k_indices + 1.0) / (K - 1)
+        tau = (time_col - t_lower) / (t_upper - t_lower)
+        k_norm = k_indices / (K - 1.0)
 
         flat_sample = path_sample.flatten(1)
-        cat_input = torch.cat([flat_sample, time_input], dim=-1)
+
+        # Inspect expected input dimension if available
+        in_features = getattr(self.velocity_net, "in_features", None)
+        if in_features is None:
+            net_obj = getattr(self.velocity_net, "net", self.velocity_net)
+            if isinstance(net_obj, (nn.Sequential, list, tuple)) and len(net_obj) > 0:
+                in_features = getattr(net_obj[0], "in_features", None)
+
+        if in_features == flat_sample.shape[-1] + 2:
+            # 2 time inputs: local progress tau and normalized discrete interval k_norm
+            cat_input = torch.cat([flat_sample, tau, k_norm], dim=-1)
+        elif in_features == flat_sample.shape[-1] + 3:
+            cat_input = torch.cat([flat_sample, tau, k_norm, time_col], dim=-1)
+        elif self.map_to_interval:
+            cat_input = torch.cat([flat_sample, tau], dim=-1)
+        else:
+            cat_input = torch.cat([flat_sample, time_col], dim=-1)
 
         try:
             return self.velocity_net(cat_input)

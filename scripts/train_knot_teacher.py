@@ -14,12 +14,19 @@ from repc.data import generate_knot_distribution
 
 
 class KnotVelocityMLP(nn.Module):
-    def __init__(self, in_dim: int = 3, out_dim: int = 2, hidden_dim: int = 128):
+    """Exact ALI-CFM paper architecture: 3 hidden layers of 256 units with SELU activations.
+
+    Input (4 dimensions):
+      - x[..., :2]: 2D spatial coordinates (x_t, y_t)
+      - x[..., 2:3]: local intra-interval time progress tau in [0, 1]
+      - x[..., 3:4]: normalized discrete interval identifier k / (K - 1) in [0, 1]
+    Output (2 dimensions): continuous velocity field dx/dt
+    """
+
+    def __init__(self, in_dim: int = 4, out_dim: int = 2, hidden_dim: int = 256):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
-            nn.SELU(),
-            nn.Linear(hidden_dim, hidden_dim),
             nn.SELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.SELU(),
@@ -35,10 +42,10 @@ class KnotVelocityMLP(nn.Module):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a Knot ALI-CFM teacher checkpoint")
     parser.add_argument("--output", type=Path, default=Path("checkpoints/knot_alicfm_teacher.pt"))
-    parser.add_argument("--steps", type=int, default=5000)
+    parser.add_argument("--steps", type=int, default=15000)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--K", type=int, default=60)
     parser.add_argument("--samples-per-marginal", type=int, default=500)
     parser.add_argument("--device", default="auto")
@@ -75,7 +82,7 @@ def main():
     )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    model = KnotVelocityMLP(in_dim=3, out_dim=2, hidden_dim=args.hidden_dim).to(device)
+    model = KnotVelocityMLP(in_dim=4, out_dim=2, hidden_dim=args.hidden_dim).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=args.steps, eta_min=1e-6
@@ -104,13 +111,13 @@ def main():
         tau = torch.rand(args.batch_size, 1, device=device)
         xt = (1.0 - tau) * x0 + tau * x1
 
-        # Global continuous time t in [0, 1] and continuous velocity u_t = dx/dt
-        k_col = k_indices.unsqueeze(1).float()
-        t_global = (k_col + tau) / (K - 1.0)
+        # Discrete interval identifier k normalized in [0, 1] and continuous velocity u_t = dx/dt
+        k_norm = k_indices.unsqueeze(1).float() / (K - 1.0)
         ut = (K - 1.0) * (x1 - x0)
 
-        # Predict velocity field conditioned on (x_t, t_global)
-        vt = model(torch.cat([xt, t_global], dim=-1))
+        # Predict velocity field conditioned on (x_t, tau, k_norm)
+        cat_input = torch.cat([xt, tau, k_norm], dim=-1)
+        vt = model(cat_input)
         loss = nn.functional.mse_loss(vt, ut)
 
         optimizer.zero_grad()
@@ -126,25 +133,27 @@ def main():
             print(
                 f"Step {step:5d}/{args.steps} | "
                 f"Loss: {loss_val:.6f} (EMA: {loss_ema:.6f}) | "
-                f"LR: {current_lr:.2e}"
+                f"LR: {current_lr:.2e}",
+                flush=True,
             )
 
-    # Save checkpoint in ALI-CFM format with global time indicator
+    # Save checkpoint in ALI-CFM format matching paper specifications
     checkpoint = {
         "model_type": "flow",
-        "time_format": "global",
+        "time_format": "interval_and_k",
         "model_config": {
             "name": "alicfm",
             "checkpoint_path": str(args.output.resolve()),
             "num_marginals": args.K,
-            "time_format": "global",
             "hidden_dim": args.hidden_dim,
+            "in_dim": 4,
+            "activation": "selu",
         },
         "ot_cfm_model": model.state_dict(),
         "flow_matching_config": {"name": "exact_ot_cfm", "sigma": 0.0},
     }
     torch.save(checkpoint, args.output)
-    print(f"Saved teacher checkpoint to {args.output}")
+    print(f"Saved teacher checkpoint to {args.output}", flush=True)
 
 
 if __name__ == "__main__":
