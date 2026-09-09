@@ -18,7 +18,7 @@ from torchcfm.conditional_flow_matching import (
 )
 from torchvision.datasets import MNIST
 
-from repc.data import MNIST_DIM, mnist_loader
+from repc.data import MNIST_DIM, mnist_loader, multimarginal_loader
 from repc.flow import build_teacher, torchcfm_mnist_teacher_config
 from repc.hclt import (
     HCLT_MNIST_CONFIG,
@@ -63,6 +63,42 @@ def parse_args() -> argparse.Namespace:
         choices=("vanilla", "ot"),
         default="ot",
         help="teacher probability path; distillation inherits it from the checkpoint",
+    )
+    parser.add_argument(
+        "--dataset",
+        choices=("mnist", "knot", "ht206b1"),
+        default="mnist",
+        help="dataset for training or distillation",
+    )
+    parser.add_argument(
+        "--teacher-arch",
+        choices=("torchcfm", "alicfm"),
+        default="torchcfm",
+        help="teacher model architecture family",
+    )
+    parser.add_argument(
+        "--num-marginals",
+        type=int,
+        default=60,
+        help="number of temporal marginal snapshots for multi-marginal datasets",
+    )
+    parser.add_argument(
+        "--fourier-zero-center",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="forces t=0 to N(0, I) by centering the cosine term in Fourier PC embeddings",
+    )
+    parser.add_argument(
+        "--polynomial-zero-center",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Forces t=0 to N(0, I) by omitting the t^0 basis term in standard PCs.",
+    )
+    parser.add_argument(
+        "--multimarginal-time-sampling",
+        choices=("uniform_global", "uniform_interval"),
+        default="uniform_interval",
+        help="timestep sampling mode for multi-marginal snapshot distillation",
     )
     parser.add_argument("--steps", type=int)
     parser.add_argument("--epochs", type=int)
@@ -351,6 +387,7 @@ def build_student(config: dict) -> nn.Module:
             num_components=config["num_components"],
             dim=config["dim"],
             time_order=config["time_order"],
+            polynomial_zero_center=config.get("polynomial_zero_center", True),
         )
     if config["name"] in ("pd", "region"):
         return RegionGraphPC(
@@ -358,6 +395,7 @@ def build_student(config: dict) -> nn.Module:
             width=config["width"],
             num_channels=config["num_channels"],
             time_order=config["time_order"],
+            polynomial_zero_center=config.get("polynomial_zero_center", True),
         )
     if config["name"] == "hclt":
         return TimeDependentHCLTPC(
@@ -371,6 +409,7 @@ def build_student(config: dict) -> nn.Module:
             leaf_distribution=config.get("leaf_distribution", "gaussian"),
             leaf_components=config.get("leaf_components", 1),
             num_categories=config.get("num_categories", 256),
+            fourier_zero_center=config.get("fourier_zero_center", True),
         )
     raise ValueError(f"unknown student: {config['name']}")
 
@@ -396,8 +435,20 @@ def pair_flow_endpoints(
 def load_teacher(
     path: Path,
     device: torch.device,
+    teacher_arch: str = "torchcfm",
 ) -> tuple[nn.Module, dict]:
-    checkpoint = torch.load(path, map_location=device, weights_only=True)
+    if teacher_arch == "alicfm":
+        teacher = build_teacher({"name": "alicfm", "checkpoint_path": path}).to(device)
+        flow_matching_config = {"name": "vanilla_cfm", "sigma": 0.0}
+        return teacher.eval(), flow_matching_config
+    try:
+        checkpoint = torch.load(path, map_location=device, weights_only=True)
+    except Exception:
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
+    if isinstance(checkpoint, dict) and checkpoint.get("model_config", {}).get("name") == "alicfm":
+        teacher = build_teacher(checkpoint["model_config"]).to(device)
+        flow_matching_config = checkpoint.get("flow_matching_config", {"name": "vanilla_cfm", "sigma": 0.0})
+        return teacher.eval(), flow_matching_config
     if checkpoint["model_type"] != "flow":
         raise ValueError(f"{path} is not a flow checkpoint")
     teacher = build_teacher(checkpoint["model_config"]).to(device)
@@ -424,9 +475,19 @@ def sample_distillation_timesteps(
     sampling: str = "uniform",
     beta_alpha: float = 1.0,
     beta_beta: float = 1.0,
+    k_indices: torch.Tensor | None = None,
+    K_total: int | None = None,
 ) -> torch.Tensor:
     """Sample path times; t=0 is noise and t=1 is the MNIST data endpoint."""
-    if sampling == "uniform":
+    if sampling in ("multimarginal_interval", "uniform_interval") and k_indices is not None:
+        if K_total is None or K_total < 2:
+            raise ValueError("K_total must be at least 2 for interval time sampling")
+        k_float = k_indices.to(device=device, dtype=dtype)
+        k_clamped = torch.clamp(k_float, 0, K_total - 2)
+        t_lower = k_clamped / (K_total - 1)
+        t_upper = (k_clamped + 1.0) / (K_total - 1)
+        return t_lower + torch.rand(count, device=device, dtype=dtype) * (t_upper - t_lower)
+    if sampling in ("uniform", "uniform_global"):
         return torch.rand(count, device=device, dtype=dtype)
     if sampling == "beta":
         concentration1 = torch.tensor(beta_alpha, device=device, dtype=dtype)
@@ -448,6 +509,8 @@ def distillation_loss(
     timestep_beta_alpha: float = 1.0,
     timestep_beta_beta: float = 1.0,
     return_timesteps: bool = False,
+    k_indices: torch.Tensor | None = None,
+    K_total: int | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     noise = torch.randn_like(data)
     times = sample_distillation_timesteps(
@@ -457,6 +520,8 @@ def distillation_loss(
         timestep_sampling,
         timestep_beta_alpha,
         timestep_beta_beta,
+        k_indices=k_indices,
+        K_total=K_total,
     )
     _, path_sample, _ = flow_matcher.sample_location_and_conditional_flow(
         noise,
@@ -715,16 +780,26 @@ def main() -> None:
     checkpoint_dir = run_dir / "checkpoints"
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    loader = mnist_loader(
-        args.data_dir,
-        train=True,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        validation_size=args.validation_size,
-        split_seed=args.seed,
-    )
+    if args.dataset == "mnist":
+        loader = mnist_loader(
+            args.data_dir,
+            train=True,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            validation_size=args.validation_size,
+            split_seed=args.seed,
+        )
+    else:
+        loader = multimarginal_loader(
+            args.dataset,
+            args.batch_size,
+            K=args.num_marginals,
+            num_workers=args.num_workers,
+            data_dir=args.data_dir,
+            seed=args.seed,
+        )
     validation_loader = None
-    if args.task == "distill" and args.validation_size:
+    if args.dataset == "mnist" and args.task == "distill" and args.validation_size:
         validation_loader = mnist_loader(
             args.data_dir,
             train=True,
@@ -750,20 +825,24 @@ def main() -> None:
         teacher, flow_matching_config = load_teacher(
             args.teacher_checkpoint,
             device,
+            teacher_arch=args.teacher_arch,
         )
-        args.flow_matcher = {
-            "vanilla_cfm": "vanilla",
-            "exact_ot_cfm": "ot",
-        }[flow_matching_config["name"]]
+        if flow_matching_config["name"] in ("vanilla_cfm", "exact_ot_cfm"):
+            args.flow_matcher = {
+                "vanilla_cfm": "vanilla",
+                "exact_ot_cfm": "ot",
+            }[flow_matching_config["name"]]
         flow_matcher = build_flow_matcher(flow_matching_config)
         for parameter in teacher.parameters():
             parameter.requires_grad_(False)
         if args.pc_structure == "gaussian":
+            data_dim = 2 if args.dataset in ("knot", "ht206b1") else MNIST_DIM
             model_config = {
                 "name": "gaussian",
                 "num_components": args.num_components,
-                "dim": MNIST_DIM,
+                "dim": data_dim,
                 "time_order": args.time_order,
+                "polynomial_zero_center": args.polynomial_zero_center,
             }
         elif args.pc_structure == "pd":
             model_config = {
@@ -772,6 +851,7 @@ def main() -> None:
                 "width": 28,
                 "num_channels": args.num_channels,
                 "time_order": args.time_order,
+                "polynomial_zero_center": args.polynomial_zero_center,
             }
         else:
             topology_path = args.hclt_topology
@@ -843,17 +923,23 @@ def main() -> None:
                 "time_feature_seed": args.seed,
                 "leaf_distribution": args.hclt_leaf_distribution,
                 "leaf_components": args.hclt_leaf_components,
+                "fourier_zero_center": args.fourier_zero_center,
                 "topology_config": resolved_topology_config,
                 "topology_path": str(topology_path.resolve()),
                 "endpoint_pretraining": args.endpoint_pretraining,
             }
         model = build_student(model_config).to(device)
+        timestep_sampling = (
+            args.multimarginal_time_sampling
+            if args.dataset != "mnist"
+            else args.timestep_sampling
+        )
         loss_function = partial(
             distillation_loss,
             model,
             teacher,
             flow_matcher,
-            timestep_sampling=args.timestep_sampling,
+            timestep_sampling=timestep_sampling,
             timestep_beta_alpha=args.timestep_beta_alpha,
             timestep_beta_beta=args.timestep_beta_beta,
             return_timesteps=True,
@@ -1015,14 +1101,29 @@ def main() -> None:
                     "elapsed_seconds",
                 )
             )
+            is_multimarginal = args.dataset != "mnist"
             for step in range(1, total_steps + 1):
                 try:
-                    images, _ = next(batches)
+                    batch = next(batches)
                 except StopIteration:
                     batches = iter(loader)
-                    images, _ = next(batches)
-                images = images.to(device, non_blocking=True)
-                loss_result = loss_function(images)
+                    batch = next(batches)
+                if is_multimarginal:
+                    images, k_indices = batch
+                    images = images.to(device, non_blocking=True)
+                    k_indices = k_indices.to(device, non_blocking=True)
+                    if args.task == "distill":
+                        loss_result = loss_function(
+                            images,
+                            k_indices=k_indices,
+                            K_total=args.num_marginals,
+                        )
+                    else:
+                        loss_result = loss_function(images)
+                else:
+                    images, _ = batch
+                    images = images.to(device, non_blocking=True)
+                    loss_result = loss_function(images)
                 sampled_timesteps = None
                 if isinstance(loss_result, tuple):
                     loss, sampled_timesteps = loss_result

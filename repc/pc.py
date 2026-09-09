@@ -76,26 +76,40 @@ class ProbabilisticCircuit(nn.Module):
 class TimeDependentGaussianPC(ProbabilisticCircuit):
     """Gaussian sum-product circuit parameterized over flow time."""
 
-    def __init__(self, num_components: int, dim: int, time_order: int = 4):
+    def __init__(
+        self,
+        num_components: int,
+        dim: int,
+        time_order: int = 4,
+        polynomial_zero_center: bool = True,
+    ):
         super().__init__()
         self.num_components = num_components
         self.dim = dim
         self.time_order = time_order
-        shape = (num_components, dim, time_order)
+        self.polynomial_zero_center = polynomial_zero_center
+        num_time_features = time_order if polynomial_zero_center else time_order + 1
+        shape = (num_components, dim, num_time_features)
         self.mean_coefficients = nn.Parameter(torch.zeros(shape))
         self.log_scale_coefficients = nn.Parameter(torch.zeros(shape))
         self.mixture_logits = nn.Parameter(torch.zeros(num_components))
 
     def _time_basis(self, time: torch.Tensor):
+        start_power = 1 if self.polynomial_zero_center else 0
         powers = torch.arange(
-            1,
+            start_power,
             self.time_order + 1,
             device=time.device,
             dtype=time.dtype,
         )
         if time.ndim > 0:
             time = time[:, None]
-        return time**powers, powers * time ** (powers - 1)
+
+        # Calculate safe derivative (avoids 0**-1 NaNs)
+        derivative_powers = torch.maximum(powers - 1, torch.zeros_like(powers))
+        derivative = powers * time ** derivative_powers
+
+        return time**powers, derivative
 
     def leaf_parameters(self, time: torch.Tensor):
         basis, derivative = self._time_basis(time)

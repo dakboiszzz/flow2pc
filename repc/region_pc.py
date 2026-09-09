@@ -63,6 +63,7 @@ class RegionGraphPC(ProbabilisticCircuit):
         width: int = 28,
         num_channels: int = 8,
         time_order: int = 4,
+        polynomial_zero_center: bool = True,
     ):
         super().__init__()
         self.height = height
@@ -70,6 +71,7 @@ class RegionGraphPC(ProbabilisticCircuit):
         self.dim = height * width
         self.num_channels = num_channels
         self.time_order = time_order
+        self.polynomial_zero_center = polynomial_zero_center
         regions, splits, root = build_region_graph(height, width)
         self.num_leaves = self.dim
 
@@ -133,22 +135,31 @@ class RegionGraphPC(ProbabilisticCircuit):
             ]
         )
         self.root_logits = nn.Parameter(torch.zeros(channels))
-        coefficient_shape = (self.dim, channels, time_order)
+        num_time_features = (
+            self.time_order if self.polynomial_zero_center else self.time_order + 1
+        )
+        coefficient_shape = (self.dim, channels, num_time_features)
         self.mean_coefficients = nn.Parameter(0.01 * torch.randn(coefficient_shape))
         self.log_scale_coefficients = nn.Parameter(
             0.01 * torch.randn(coefficient_shape)
         )
 
     def _time_basis(self, time: torch.Tensor):
+        start_power = 1 if self.polynomial_zero_center else 0
         powers = torch.arange(
-            1,
+            start_power,
             self.time_order + 1,
             device=time.device,
             dtype=time.dtype,
         )
         if time.ndim > 0:
             time = time[:, None]
-        return time**powers, powers * time ** (powers - 1)
+
+        # Calculate safe derivative (avoids 0**-1 NaNs)
+        derivative_powers = torch.maximum(powers - 1, torch.zeros_like(powers))
+        derivative = powers * time ** derivative_powers
+
+        return time**powers, derivative
 
     def leaf_parameters(self, time: torch.Tensor):
         basis, derivative = self._time_basis(time)
