@@ -1,0 +1,1603 @@
+diff --git a/checkpoints/knot_alicfm_teacher.pt b/checkpoints/knot_alicfm_teacher.pt
+new file mode 100644
+index 0000000..09e090f
+Binary files /dev/null and b/checkpoints/knot_alicfm_teacher.pt differ
+diff --git a/eval.py b/eval.py
+index 9afe556..7fcb724 100644
+--- a/eval.py
++++ b/eval.py
+@@ -3,9 +3,15 @@ import csv
+ import json
+ import math
+ import os
++import sys
+ import time
+ from pathlib import Path
+ 
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
+ import torch
+ import wandb
+ from torch import nn
+diff --git a/repc/data.py b/repc/data.py
+index b9b5031..a1f86c6 100644
+--- a/repc/data.py
++++ b/repc/data.py
+@@ -1,7 +1,8 @@
+ from pathlib import Path
+ 
++import numpy as np
+ import torch
+-from torch.utils.data import DataLoader, Subset
++from torch.utils.data import DataLoader, Dataset, Subset
+ from torchvision import transforms
+ from torchvision.datasets import MNIST
+ 
+@@ -54,3 +55,131 @@ def mnist_loader(
+         drop_last=shuffle,
+         generator=loader_generator,
+     )
++
++
++def generate_knot_distribution(
++    K: int = 60,
++    samples_per_marginal: int = 10,
++    std: float = 0.1,
++    seed: int | None = None,
++) -> torch.Tensor:
++    """Generate synthetic Knot distribution from ALI-CFM Appendix B.
++
++    Returns a torch.Tensor of shape [K, samples_per_marginal, 2].
++    """
++    if K <= 0 or K % 3 != 0:
++        raise ValueError(f"K (number of marginals) must be a positive multiple of 3, got {K}")
++
++    t = np.linspace(0.0, 3.0, K)
++    # \tilde{t} = 3 * (t / t_max) - 1.5 where t_max = 3
++    t_tilde = t - 1.5
++
++    seg_size = K // 3
++    t1 = t_tilde[:seg_size]
++    t2 = t_tilde[seg_size : 2 * seg_size]
++    t3 = t_tilde[2 * seg_size :]
++
++    # \mu_X(t)
++    mu_x1 = 3.0 * (t1 + 0.5)
++    mu_x2 = np.cos(2.0 * np.pi * (t2 - 0.75))
++    mu_x3 = 3.0 * (t3 - 0.5)
++    mu_x = np.concatenate([mu_x1, mu_x2, mu_x3])
++
++    # \mu_Y(t)
++    mu_y1 = -0.5 * np.tanh(5.0 * (t1 + 1.0)) + 0.5
++    mu_y2 = np.sin(2.0 * np.pi * (t2 - 0.75))
++    mu_y3 = 0.5 * np.tanh(5.0 * (t3 - 1.0)) + 0.5
++    mu_y = np.concatenate([mu_y1, mu_y2, mu_y3])
++
++    rng = np.random.default_rng(seed)
++    x_samples = mu_x[:, None] + rng.normal(0.0, std, size=(K, samples_per_marginal))
++    y_samples = mu_y[:, None] + rng.normal(0.0, std, size=(K, samples_per_marginal))
++
++    samples = np.stack([x_samples, y_samples], axis=-1)
++    return torch.from_numpy(samples).float()
++
++
++class MultiMarginalDataset(Dataset):
++    """Dataset wrapping multi-marginal snapshots [K, N, D].
++
++    Flattened across marginals while retaining the temporal k_index (0 to K-1).
++    """
++
++    def __init__(self, data: torch.Tensor):
++        if data.ndim != 3:
++            raise ValueError(f"expected 3D tensor [K, N, D], got shape {tuple(data.shape)}")
++        self.data = data
++        self.K = data.shape[0]
++        self.N = data.shape[1]
++        self.D = data.shape[2]
++
++    def __len__(self) -> int:
++        return self.K * self.N
++
++    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
++        k_index = index // self.N
++        n_index = index % self.N
++        return self.data[k_index, n_index], torch.tensor(k_index, dtype=torch.long)
++
++
++def multimarginal_loader(
++    dataset_name: str,
++    batch_size: int,
++    K: int = 60,
++    samples_per_marginal: int = 10,
++    shuffle: bool = True,
++    num_workers: int = 0,
++    data_dir: Path | str = "data",
++    seed: int | None = None,
++) -> DataLoader:
++    """Create a DataLoader for multi-marginal snapshot datasets."""
++    dataset_name_lower = dataset_name.lower()
++    if dataset_name_lower == "knot":
++        data = generate_knot_distribution(
++            K=K,
++            samples_per_marginal=samples_per_marginal,
++            seed=seed,
++        )
++    elif dataset_name_lower == "ht206b1":
++        data_path = Path(data_dir)
++        candidates = [
++            data_path / "ht206b1.npy",
++            data_path / "ht206b1.pt",
++            data_path / "HT206B1.npy",
++            data_path / "HT206B1.pt",
++            data_path / "st" / "ht206b1.npy",
++            data_path / "ST" / "ht206b1.npy",
++        ]
++        loaded = None
++        for candidate in candidates:
++            if candidate.is_file():
++                if candidate.suffix == ".npy":
++                    loaded = torch.from_numpy(np.load(candidate)).float()
++                else:
++                    loaded = torch.load(candidate, weights_only=True).float()
++                break
++        if loaded is None:
++            raise FileNotFoundError(
++                f"could not find ht206b1 dataset file in {data_path}. Checked: "
++                f"{[str(c) for c in candidates]}"
++            )
++        data = loaded
++        if data.ndim == 2:
++            if data.shape[0] % K == 0:
++                data = data.reshape(K, -1, data.shape[-1])
++            else:
++                raise ValueError(
++                    f"cannot reshape tensor of shape {tuple(data.shape)} into K={K} marginals"
++                )
++    else:
++        raise ValueError(f"unknown multi-marginal dataset: {dataset_name}")
++
++    dataset = MultiMarginalDataset(data)
++    return DataLoader(
++        dataset,
++        batch_size=batch_size,
++        shuffle=shuffle,
++        num_workers=num_workers,
++        drop_last=shuffle,
++    )
++
+diff --git a/repc/flow.py b/repc/flow.py
+index aae57dc..2e514bc 100644
+--- a/repc/flow.py
++++ b/repc/flow.py
+@@ -1,3 +1,5 @@
++from pathlib import Path
++import torch
+ from torch import nn
+ from torchcfm.models.unet import UNetModel
+ 
+@@ -12,7 +14,139 @@ def torchcfm_mnist_teacher_config() -> dict:
+     }
+ 
+ 
++class ALICFMTeacherWrapper(nn.Module):
++    """Wrapper adapting ALI-CFM velocity networks to the Flow2PC teacher interface.
++
++    Accepts calls in the standard Flow2PC format: `teacher(time, path_sample)`
++    where `time` is global in [0, 1] and maps it to the interval I_k expected by ALI-CFM.
++    """
++
++    def __init__(
++        self,
++        checkpoint_path: str | Path | nn.Module,
++        num_marginals: int = 60,
++        map_to_interval: bool = True,
++    ):
++        super().__init__()
++        self.num_marginals = num_marginals
++        self.map_to_interval = map_to_interval
++        if isinstance(checkpoint_path, nn.Module):
++            self.velocity_net = checkpoint_path
++            return
++
++        path = Path(checkpoint_path)
++        try:
++            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
++        except Exception:
++            checkpoint = torch.load(path, map_location="cpu")
++
++        if isinstance(checkpoint, nn.Module):
++            self.velocity_net = checkpoint
++        elif isinstance(checkpoint, dict):
++            if (
++                checkpoint.get("time_format") == "global"
++                or checkpoint.get("model_config", {}).get("time_format") == "global"
++            ):
++                self.map_to_interval = False
++            # Check for module in common keys
++            for key in ("ot_cfm_model", "velocity_net", "model", "net"):
++                if key in checkpoint and isinstance(checkpoint[key], nn.Module):
++                    self.velocity_net = checkpoint[key]
++                    return
++
++            # Check for state dict in common keys
++            state_dict = None
++            for key in ("ot_cfm_model", "velocity_net", "model", "net", "state_dict"):
++                if key in checkpoint and isinstance(checkpoint[key], dict):
++                    state_dict = checkpoint[key]
++                    break
++            if state_dict is None:
++                state_dict = checkpoint
++
++            self.velocity_net = self._build_mlp_from_state_dict(state_dict)
++            self.velocity_net.load_state_dict(state_dict)
++        else:
++            raise TypeError(f"unexpected checkpoint type: {type(checkpoint)}")
++
++    @staticmethod
++    def _build_mlp_from_state_dict(state_dict: dict) -> nn.Module:
++        """Reconstruct MLP architecture from state dict layer weights."""
++        weight_keys = [k for k in state_dict if k.endswith(".weight")]
++        weight_keys.sort()
++        if not weight_keys:
++            raise ValueError("could not find weight keys in state dict")
++
++        layers = []
++        for i, key in enumerate(weight_keys):
++            weight = state_dict[key]
++            out_features, in_features = weight.shape
++            linear = nn.Linear(in_features, out_features)
++            layers.append(linear)
++            if i < len(weight_keys) - 1:
++                layers.append(nn.SELU())
++
++        # If original state dict had 'net.' prefix, wrap in a module that has 'net' attribute
++        has_net_prefix = any(k.startswith("net.") for k in state_dict)
++        sequential = nn.Sequential(*layers)
++        if has_net_prefix:
++            class PrefixedMLP(nn.Module):
++                def __init__(self, net):
++                    super().__init__()
++                    self.net = net
++                def forward(self, x):
++                    return self.net(x)
++            return PrefixedMLP(sequential)
++        return sequential
++
++    def forward(self, time: torch.Tensor, path_sample: torch.Tensor) -> torch.Tensor:
++        """Evaluate velocity field given global time in [0, 1] and path samples."""
++        if time.ndim == 0:
++            time = time.unsqueeze(0)
++        time_col = time[:, None] if time.ndim == 1 else time
++        time_col = time_col.to(device=path_sample.device, dtype=path_sample.dtype)
++
++        K = self.num_marginals
++        k_indices = torch.floor(time_col * (K - 1)).clamp(0, K - 2)
++        t_lower = k_indices / (K - 1)
++        t_upper = (k_indices + 1.0) / (K - 1)
++        tau = (time_col - t_lower) / (t_upper - t_lower)
++        k_norm = k_indices / (K - 1.0)
++
++        flat_sample = path_sample.flatten(1)
++
++        # Inspect expected input dimension if available
++        in_features = getattr(self.velocity_net, "in_features", None)
++        if in_features is None:
++            net_obj = getattr(self.velocity_net, "net", self.velocity_net)
++            if isinstance(net_obj, (nn.Sequential, list, tuple)) and len(net_obj) > 0:
++                in_features = getattr(net_obj[0], "in_features", None)
++
++        if in_features == flat_sample.shape[-1] + 2:
++            # 2 time inputs: local progress tau and normalized discrete interval k_norm
++            cat_input = torch.cat([flat_sample, tau, k_norm], dim=-1)
++        elif in_features == flat_sample.shape[-1] + 3:
++            cat_input = torch.cat([flat_sample, tau, k_norm, time_col], dim=-1)
++        elif self.map_to_interval:
++            cat_input = torch.cat([flat_sample, tau], dim=-1)
++        else:
++            cat_input = torch.cat([flat_sample, time_col], dim=-1)
++
++        try:
++            return self.velocity_net(cat_input)
++        except TypeError:
++            try:
++                return self.velocity_net(time_input, path_sample)
++            except TypeError:
++                return self.velocity_net(path_sample, time_input)
++
++
+ def build_teacher(config: dict) -> nn.Module:
++    if config.get("name") == "alicfm":
++        return ALICFMTeacherWrapper(
++            config["checkpoint_path"],
++            num_marginals=config.get("num_marginals", 60),
++            map_to_interval=config.get("map_to_interval", True),
++        )
+     if config.get("name") != "torchcfm_unet":
+         raise ValueError(f"unknown teacher architecture: {config.get('name')}")
+     return UNetModel(
+@@ -20,3 +154,4 @@ def build_teacher(config: dict) -> nn.Module:
+         num_channels=config["num_channels"],
+         num_res_blocks=config["num_res_blocks"],
+     )
++
+diff --git a/repc/hclt_pc.py b/repc/hclt_pc.py
+index dd3fc61..a38dd63 100644
+--- a/repc/hclt_pc.py
++++ b/repc/hclt_pc.py
+@@ -67,6 +67,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
+         leaf_distribution: str = "gaussian",
+         leaf_components: int = 1,
+         num_categories: int = 256,
++        fourier_zero_center: bool = True,
+     ):
+         super().__init__()
+         if num_latents < 2:
+@@ -103,6 +104,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
+         self.leaf_distribution = leaf_distribution
+         self.leaf_components = leaf_components
+         self.num_categories = num_categories
++        self.fourier_zero_center = fourier_zero_center
+         root, children, levels = _tree_schedule(parents)
+         self.root = root
+         self.tree_children = children
+@@ -212,8 +214,13 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
+             scalar_time = time[:, None] if time.ndim > 0 else time[None]
+             angular_frequencies = 2.0 * math.pi * self.time_frequencies
+             angles = scalar_time * angular_frequencies
++            cos_term = (
++                torch.cos(angles) - 1.0
++                if self.fourier_zero_center
++                else torch.cos(angles)
++            )
+             basis = torch.stack(
+-                (torch.cos(angles) - 1.0, torch.sin(angles)),
++                (cos_term, torch.sin(angles)),
+                 dim=-1,
+             ).flatten(-2)
+             derivative = torch.stack(
+diff --git a/repc/pc.py b/repc/pc.py
+index be35422..9900ab1 100644
+--- a/repc/pc.py
++++ b/repc/pc.py
+@@ -76,26 +76,40 @@ class ProbabilisticCircuit(nn.Module):
+ class TimeDependentGaussianPC(ProbabilisticCircuit):
+     """Gaussian sum-product circuit parameterized over flow time."""
+ 
+-    def __init__(self, num_components: int, dim: int, time_order: int = 4):
++    def __init__(
++        self,
++        num_components: int,
++        dim: int,
++        time_order: int = 4,
++        polynomial_zero_center: bool = True,
++    ):
+         super().__init__()
+         self.num_components = num_components
+         self.dim = dim
+         self.time_order = time_order
+-        shape = (num_components, dim, time_order)
++        self.polynomial_zero_center = polynomial_zero_center
++        num_time_features = time_order if polynomial_zero_center else time_order + 1
++        shape = (num_components, dim, num_time_features)
+         self.mean_coefficients = nn.Parameter(torch.zeros(shape))
+         self.log_scale_coefficients = nn.Parameter(torch.zeros(shape))
+         self.mixture_logits = nn.Parameter(torch.zeros(num_components))
+ 
+     def _time_basis(self, time: torch.Tensor):
++        start_power = 1 if self.polynomial_zero_center else 0
+         powers = torch.arange(
+-            1,
++            start_power,
+             self.time_order + 1,
+             device=time.device,
+             dtype=time.dtype,
+         )
+         if time.ndim > 0:
+             time = time[:, None]
+-        return time**powers, powers * time ** (powers - 1)
++
++        # Calculate safe derivative (avoids 0**-1 NaNs)
++        derivative_powers = torch.maximum(powers - 1, torch.zeros_like(powers))
++        derivative = powers * time ** derivative_powers
++
++        return time**powers, derivative
+ 
+     def leaf_parameters(self, time: torch.Tensor):
+         basis, derivative = self._time_basis(time)
+diff --git a/repc/region_pc.py b/repc/region_pc.py
+index 0b083a9..5275f30 100644
+--- a/repc/region_pc.py
++++ b/repc/region_pc.py
+@@ -63,6 +63,7 @@ class RegionGraphPC(ProbabilisticCircuit):
+         width: int = 28,
+         num_channels: int = 8,
+         time_order: int = 4,
++        polynomial_zero_center: bool = True,
+     ):
+         super().__init__()
+         self.height = height
+@@ -70,6 +71,7 @@ class RegionGraphPC(ProbabilisticCircuit):
+         self.dim = height * width
+         self.num_channels = num_channels
+         self.time_order = time_order
++        self.polynomial_zero_center = polynomial_zero_center
+         regions, splits, root = build_region_graph(height, width)
+         self.num_leaves = self.dim
+ 
+@@ -133,22 +135,31 @@ class RegionGraphPC(ProbabilisticCircuit):
+             ]
+         )
+         self.root_logits = nn.Parameter(torch.zeros(channels))
+-        coefficient_shape = (self.dim, channels, time_order)
++        num_time_features = (
++            self.time_order if self.polynomial_zero_center else self.time_order + 1
++        )
++        coefficient_shape = (self.dim, channels, num_time_features)
+         self.mean_coefficients = nn.Parameter(0.01 * torch.randn(coefficient_shape))
+         self.log_scale_coefficients = nn.Parameter(
+             0.01 * torch.randn(coefficient_shape)
+         )
+ 
+     def _time_basis(self, time: torch.Tensor):
++        start_power = 1 if self.polynomial_zero_center else 0
+         powers = torch.arange(
+-            1,
++            start_power,
+             self.time_order + 1,
+             device=time.device,
+             dtype=time.dtype,
+         )
+         if time.ndim > 0:
+             time = time[:, None]
+-        return time**powers, powers * time ** (powers - 1)
++
++        # Calculate safe derivative (avoids 0**-1 NaNs)
++        derivative_powers = torch.maximum(powers - 1, torch.zeros_like(powers))
++        derivative = powers * time ** derivative_powers
++
++        return time**powers, derivative
+ 
+     def leaf_parameters(self, time: torch.Tensor):
+         basis, derivative = self._time_basis(time)
+diff --git a/scripts/plot_knot_teacher.py b/scripts/plot_knot_teacher.py
+new file mode 100644
+index 0000000..4a46f5b
+--- /dev/null
++++ b/scripts/plot_knot_teacher.py
+@@ -0,0 +1,214 @@
++import argparse
++import sys
++from pathlib import Path
++
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
++import matplotlib
++matplotlib.use("Agg")
++import matplotlib.pyplot as plt
++import numpy as np
++import torch
++from repc.data import generate_knot_distribution
++from repc.flow import ALICFMTeacherWrapper
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Plot trajectories generated by Knot ALI-CFM teacher")
++    parser.add_argument(
++        "--checkpoint",
++        type=Path,
++        default=Path("checkpoints/knot_alicfm_teacher.pt"),
++        help="Path to teacher checkpoint",
++    )
++    parser.add_argument(
++        "--output",
++        type=Path,
++        default=Path("outputs/knot_teacher_trajectories.png"),
++        help="Output image path",
++    )
++    parser.add_argument("--num-trajectories", type=int, default=30, help="Number of trajectories to simulate")
++    parser.add_argument("--num-steps", type=int, default=100, help="Number of RK4 ODE integration steps")
++    parser.add_argument("--K", type=int, default=60, help="Number of ground truth marginals")
++    parser.add_argument("--device", default="auto", help="Device to run ODE on")
++    return parser.parse_args()
++
++
++@torch.no_grad()
++def integrate_rk4(
++    teacher: ALICFMTeacherWrapper,
++    x0: torch.Tensor,
++    num_steps: int = 100,
++    device: torch.device = torch.device("cpu"),
++) -> tuple[torch.Tensor, torch.Tensor]:
++    """Integrate dx/dt = v(t, x) from t=0 to t=1 using Runge-Kutta 4th order."""
++    dt = 1.0 / num_steps
++    time_steps = torch.linspace(0.0, 1.0, num_steps + 1, device=device)
++    
++    trajectories = [x0.clone()]
++    current_x = x0.clone()
++
++    for i in range(num_steps):
++        t_curr = time_steps[i].repeat(current_x.shape[0])
++        t_mid = (time_steps[i] + 0.5 * dt).repeat(current_x.shape[0])
++        t_next = time_steps[i + 1].repeat(current_x.shape[0])
++
++        k1 = teacher(t_curr, current_x)
++        k2 = teacher(t_mid, current_x + 0.5 * dt * k1)
++        k3 = teacher(t_mid, current_x + 0.5 * dt * k2)
++        k4 = teacher(t_next, current_x + dt * k3)
++
++        current_x = current_x + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
++        trajectories.append(current_x.clone())
++
++    # [num_steps + 1, batch_size, 2] -> [batch_size, num_steps + 1, 2]
++    traj_tensor = torch.stack(trajectories, dim=1)
++    return time_steps, traj_tensor
++
++
++def main():
++    args = parse_args()
++    device = torch.device(
++        ("cuda" if torch.cuda.is_available() else "cpu")
++        if args.device == "auto"
++        else args.device
++    )
++
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++
++    print(f"Loading teacher from {args.checkpoint}...")
++    teacher = ALICFMTeacherWrapper(args.checkpoint, num_marginals=args.K)
++    teacher.to(device)
++    teacher.eval()
++
++    print(f"Generating ground truth Knot distribution (K={args.K})...")
++    gt_data = generate_knot_distribution(K=args.K, samples_per_marginal=100)  # [K, N, 2]
++    K, N, _ = gt_data.shape
++
++    # Initial condition: sample from marginal 0
++    init_indices = torch.randint(0, N, (args.num_trajectories,))
++    x0 = gt_data[0, init_indices].to(device)
++
++    print(f"Simulating {args.num_trajectories} trajectories via RK4 ({args.num_steps} steps)...")
++    time_steps, trajectories = integrate_rk4(teacher, x0, num_steps=args.num_steps, device=device)
++    traj_np = trajectories.cpu().numpy()  # [B, S+1, 2]
++    gt_np = gt_data.numpy()
++
++    # Quantitative diagnostics
++    start_sim = traj_np[:, 0, :]
++    end_sim = traj_np[:, -1, :]
++    start_gt = gt_np[0]
++    end_gt = gt_np[-1]
++
++    print(f"Initial GT Mean:  {start_gt.mean(axis=0)} | Sim Mean: {start_sim.mean(axis=0)}")
++    print(f"Final   GT Mean:  {end_gt.mean(axis=0)}   | Sim Mean: {end_sim.mean(axis=0)}")
++
++    # Plotting
++    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
++    fig = plt.figure(figsize=(18, 5), dpi=200)
++
++    # 1. Main Trajectories vs Ground Truth Marginals
++    ax1 = fig.add_subplot(1, 3, 1)
++    cmap = plt.cm.viridis
++    for k in range(K):
++        color = cmap(k / (K - 1))
++        ax1.scatter(gt_np[k, :, 0], gt_np[k, :, 1], color=color, alpha=0.15, s=6)
++
++    for b in range(args.num_trajectories):
++        ax1.plot(
++            traj_np[b, :, 0],
++            traj_np[b, :, 1],
++            color="crimson",
++            alpha=0.6,
++            linewidth=1.2,
++        )
++    ax1.scatter(traj_np[:, 0, 0], traj_np[:, 0, 1], color="forestgreen", s=30, zorder=5, label=r"Start ($t=0$)")
++    ax1.scatter(traj_np[:, -1, 0], traj_np[:, -1, 1], color="purple", s=30, zorder=5, label=r"End ($t=1$)")
++    ax1.set_title("Knot Teacher Trajectories vs Ground Truth Marginals", fontsize=11, fontweight="bold")
++    ax1.set_xlabel("X")
++    ax1.set_ylabel("Y")
++    ax1.legend(loc="upper right", frameon=True)
++    ax1.set_aspect("equal")
++
++    # 2. Intermediate Marginal Snapshot Comparisons
++    ax2 = fig.add_subplot(1, 3, 2)
++    selected_fractions = [0.0, 0.25, 0.5, 0.75, 1.0]
++    colors = ["#2b5c8f", "#3a927c", "#c98236", "#d95f02", "#7570b3"]
++    for frac, color in zip(selected_fractions, colors):
++        k_idx = int(round(frac * (K - 1)))
++        step_idx = int(round(frac * args.num_steps))
++        # GT points
++        ax2.scatter(
++            gt_np[k_idx, :, 0],
++            gt_np[k_idx, :, 1],
++            color=color,
++            alpha=0.25,
++            s=12,
++            label=f"t={frac:.2f} (GT)",
++        )
++        # Simulated ODE particles
++        ax2.scatter(
++            traj_np[:, step_idx, 0],
++            traj_np[:, step_idx, 1],
++            facecolors="none",
++            edgecolors=color,
++            s=40,
++            linewidths=1.5,
++            label=f"t={frac:.2f} (Sim)",
++        )
++    ax2.set_title("Intermediate Marginal Snapshots (GT vs Sim)", fontsize=11, fontweight="bold")
++    ax2.set_xlabel("X")
++    ax2.set_ylabel("Y")
++    ax2.legend(loc="upper right", fontsize=8, frameon=True, ncol=2)
++    ax2.set_aspect("equal")
++
++    # 3. Vector Field Flow at Midpoint t=0.5
++    ax3 = fig.add_subplot(1, 3, 3)
++    x_min, x_max = gt_np[..., 0].min() - 0.5, gt_np[..., 0].max() + 0.5
++    y_min, y_max = gt_np[..., 1].min() - 0.5, gt_np[..., 1].max() + 0.5
++    grid_x, grid_y = np.meshgrid(
++        np.linspace(x_min, x_max, 25),
++        np.linspace(y_min, y_max, 25),
++    )
++    grid_points = torch.tensor(
++        np.stack([grid_x.flatten(), grid_y.flatten()], axis=-1),
++        dtype=torch.float32,
++        device=device,
++    )
++    t_mid = torch.tensor([0.5] * len(grid_points), dtype=torch.float32, device=device)
++    with torch.no_grad():
++        v_mid = teacher(t_mid, grid_points).cpu().numpy()
++
++    u = v_mid[:, 0].reshape(grid_x.shape)
++    v = v_mid[:, 1].reshape(grid_y.shape)
++    speed = np.sqrt(u**2 + v**2) + 1e-6
++    ax3.quiver(
++        grid_x,
++        grid_y,
++        u / speed,
++        v / speed,
++        speed,
++        cmap="plasma",
++        alpha=0.8,
++        pivot="mid",
++    )
++    # Overlay ground truth curve points around t=0.5
++    k_mid = K // 2
++    ax3.scatter(gt_np[k_mid, :, 0], gt_np[k_mid, :, 1], color="black", s=15, alpha=0.5, label="GT points (t=0.5)")
++    ax3.set_title(r"Learned Velocity Vector Field $v_\theta(x, t=0.5)$", fontsize=11, fontweight="bold")
++    ax3.set_xlabel("X")
++    ax3.set_ylabel("Y")
++    ax3.legend(loc="upper right", frameon=True)
++    ax3.set_aspect("equal")
++
++    plt.tight_layout()
++    plt.savefig(args.output, dpi=200, bbox_inches="tight")
++    plt.close()
++    print(f"Trajectory visualization saved successfully to {args.output}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/train_knot_teacher.py b/scripts/train_knot_teacher.py
+new file mode 100644
+index 0000000..4e77622
+--- /dev/null
++++ b/scripts/train_knot_teacher.py
+@@ -0,0 +1,160 @@
++import argparse
++import sys
++from pathlib import Path
++
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
++import torch
++from torch import nn
++from torchcfm.optimal_transport import OTPlanSampler
++from repc.data import generate_knot_distribution
++
++
++class KnotVelocityMLP(nn.Module):
++    """Exact ALI-CFM paper architecture: 3 hidden layers of 256 units with SELU activations.
++
++    Input (4 dimensions):
++      - x[..., :2]: 2D spatial coordinates (x_t, y_t)
++      - x[..., 2:3]: local intra-interval time progress tau in [0, 1]
++      - x[..., 3:4]: normalized discrete interval identifier k / (K - 1) in [0, 1]
++    Output (2 dimensions): continuous velocity field dx/dt
++    """
++
++    def __init__(self, in_dim: int = 4, out_dim: int = 2, hidden_dim: int = 256):
++        super().__init__()
++        self.net = nn.Sequential(
++            nn.Linear(in_dim, hidden_dim),
++            nn.SELU(),
++            nn.Linear(hidden_dim, hidden_dim),
++            nn.SELU(),
++            nn.Linear(hidden_dim, hidden_dim),
++            nn.SELU(),
++            nn.Linear(hidden_dim, out_dim),
++        )
++
++    def forward(self, x: torch.Tensor) -> torch.Tensor:
++        return self.net(x)
++
++
++def parse_args():
++    parser = argparse.ArgumentParser(description="Train a Knot ALI-CFM teacher checkpoint")
++    parser.add_argument("--output", type=Path, default=Path("checkpoints/knot_alicfm_teacher.pt"))
++    parser.add_argument("--steps", type=int, default=15000)
++    parser.add_argument("--batch-size", type=int, default=256)
++    parser.add_argument("--lr", type=float, default=1e-3)
++    parser.add_argument("--hidden-dim", type=int, default=256)
++    parser.add_argument("--K", type=int, default=60)
++    parser.add_argument("--samples-per-marginal", type=int, default=500)
++    parser.add_argument("--device", default="auto")
++    return parser.parse_args()
++
++
++def precompute_ot_couplings(data: torch.Tensor, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
++    """Precompute exact Optimal Transport plan pairings for all K-1 transitions."""
++    K, N, D = data.shape
++    ot_sampler = OTPlanSampler(method="exact")
++    coupled_x0 = []
++    coupled_x1 = []
++
++    print(f"Precomputing exact OT plans across {K - 1} marginal transitions ({N} samples each)...")
++    for k in range(K - 1):
++        m0 = data[k]
++        m1 = data[k + 1]
++        p0, p1 = ot_sampler.sample_plan(m0, m1)
++        coupled_x0.append(p0)
++        coupled_x1.append(p1)
++
++    # Shape: [K-1, N, D]
++    x0_all = torch.stack(coupled_x0, dim=0).to(device)
++    x1_all = torch.stack(coupled_x1, dim=0).to(device)
++    return x0_all, x1_all
++
++
++def main():
++    args = parse_args()
++    device = torch.device(
++        ("cuda" if torch.cuda.is_available() else "cpu")
++        if args.device == "auto"
++        else args.device
++    )
++
++    args.output.parent.mkdir(parents=True, exist_ok=True)
++    model = KnotVelocityMLP(in_dim=4, out_dim=2, hidden_dim=args.hidden_dim).to(device)
++    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
++    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
++        optimizer, T_max=args.steps, eta_min=1e-6
++    )
++
++    print(f"Generating Knot distribution (K={args.K}, samples_per_marginal={args.samples_per_marginal})...")
++    raw_data = generate_knot_distribution(K=args.K, samples_per_marginal=args.samples_per_marginal)
++    # raw_data: [K, N, 2]
++    K = args.K
++    x0_coupled, x1_coupled = precompute_ot_couplings(raw_data, device=device)
++    num_transitions, num_samples, _ = x0_coupled.shape
++
++    print(f"Training Knot teacher for {args.steps} steps on {device}...")
++    loss_ema = None
++    log_interval = max(args.steps // 10, 100)
++
++    for step in range(1, args.steps + 1):
++        # Sample random transition intervals k in [0, K-2] and sample indices in [0, N-1]
++        k_indices = torch.randint(0, num_transitions, (args.batch_size,), device=device)
++        sample_indices = torch.randint(0, num_samples, (args.batch_size,), device=device)
++
++        x0 = x0_coupled[k_indices, sample_indices]  # [B, 2]
++        x1 = x1_coupled[k_indices, sample_indices]  # [B, 2]
++
++        # Sample local progress tau in [0, 1] within the interval
++        tau = torch.rand(args.batch_size, 1, device=device)
++        xt = (1.0 - tau) * x0 + tau * x1
++
++        # Discrete interval identifier k normalized in [0, 1] and continuous velocity u_t = dx/dt
++        k_norm = k_indices.unsqueeze(1).float() / (K - 1.0)
++        ut = (K - 1.0) * (x1 - x0)
++
++        # Predict velocity field conditioned on (x_t, tau, k_norm)
++        cat_input = torch.cat([xt, tau, k_norm], dim=-1)
++        vt = model(cat_input)
++        loss = nn.functional.mse_loss(vt, ut)
++
++        optimizer.zero_grad()
++        loss.backward()
++        optimizer.step()
++        scheduler.step()
++
++        loss_val = loss.item()
++        loss_ema = loss_val if loss_ema is None else 0.95 * loss_ema + 0.05 * loss_val
++
++        if step % log_interval == 0 or step == args.steps:
++            current_lr = scheduler.get_last_lr()[0]
++            print(
++                f"Step {step:5d}/{args.steps} | "
++                f"Loss: {loss_val:.6f} (EMA: {loss_ema:.6f}) | "
++                f"LR: {current_lr:.2e}",
++                flush=True,
++            )
++
++    # Save checkpoint in ALI-CFM format matching paper specifications
++    checkpoint = {
++        "model_type": "flow",
++        "time_format": "interval_and_k",
++        "model_config": {
++            "name": "alicfm",
++            "checkpoint_path": str(args.output.resolve()),
++            "num_marginals": args.K,
++            "hidden_dim": args.hidden_dim,
++            "in_dim": 4,
++            "activation": "selu",
++        },
++        "ot_cfm_model": model.state_dict(),
++        "flow_matching_config": {"name": "exact_ot_cfm", "sigma": 0.0},
++    }
++    torch.save(checkpoint, args.output)
++    print(f"Saved teacher checkpoint to {args.output}", flush=True)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/test_multimarginal_alicfm.py b/tests/test_multimarginal_alicfm.py
+new file mode 100644
+index 0000000..01cab2a
+--- /dev/null
++++ b/tests/test_multimarginal_alicfm.py
+@@ -0,0 +1,262 @@
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent.parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
++import numpy as np
++import torch
++from torch import nn
++
++from repc.data import (
++    MultiMarginalDataset,
++    generate_knot_distribution,
++    multimarginal_loader,
++)
++from repc.flow import ALICFMTeacherWrapper, build_teacher
++from repc.hclt_pc import TimeDependentHCLTPC
++from repc.pc import TimeDependentGaussianPC
++from repc.region_pc import RegionGraphPC
++from train import (
++    ConditionalFlowMatcher,
++    distillation_loss,
++    load_teacher,
++    parse_args,
++    sample_distillation_timesteps,
++)
++
++
++class MultiMarginalDataTest(unittest.TestCase):
++    def test_generate_knot_distribution_shape_and_validation(self):
++        with self.assertRaises(ValueError):
++            generate_knot_distribution(K=10)  # not multiple of 3
++
++        knot_data = generate_knot_distribution(K=60, samples_per_marginal=10, seed=42)
++        self.assertEqual(knot_data.shape, (60, 10, 2))
++        self.assertEqual(knot_data.dtype, torch.float32)
++        self.assertTrue(torch.all(torch.isfinite(knot_data)))
++
++        # Segment 1 (k=0): t=0 -> t_tilde = -1.5 -> mu_x1 = 3*(-1.5 + 0.5) = -3.0
++        # Check empirical mean around k=0 is close to -3.0
++        self.assertAlmostEqual(knot_data[0, :, 0].mean().item(), -3.0, delta=0.2)
++
++    def test_multi_marginal_dataset_and_loader(self):
++        K, N, D = 6, 20, 2
++        data = torch.randn(K, N, D)
++        dataset = MultiMarginalDataset(data)
++
++        self.assertEqual(len(dataset), K * N)
++        point, k_idx = dataset[25]  # k = 25 // 20 = 1, n = 5
++        self.assertEqual(k_idx.item(), 1)
++        self.assertTrue(torch.allclose(point, data[1, 5]))
++
++        loader = multimarginal_loader("knot", batch_size=16, K=60, samples_per_marginal=10)
++        batch = next(iter(loader))
++        points, k_indices = batch
++        self.assertEqual(points.shape, (16, 2))
++        self.assertEqual(k_indices.shape, (16,))
++        self.assertTrue(torch.all((k_indices >= 0) & (k_indices < 60)))
++
++
++class ALICFMTeacherTest(unittest.TestCase):
++    def test_alicfm_teacher_wrapper_and_interval_mapping(self):
++        # Create a simple mock MLP matching ALI-CFM architecture: 2D space + 1D time -> 2D velocity
++        in_dim = 2 + 1
++        out_dim = 2
++        mock_mlp = nn.Sequential(
++            nn.Linear(in_dim, 32),
++            nn.SELU(),
++            nn.Linear(32, out_dim),
++        )
++
++        teacher = ALICFMTeacherWrapper(mock_mlp, num_marginals=60)
++
++        # Call with global times and path samples
++        batch_size = 8
++        times = torch.linspace(0.0, 1.0, batch_size)
++        path_samples = torch.randn(batch_size, 2)
++
++        velocity = teacher(times, path_samples)
++        self.assertEqual(velocity.shape, (batch_size, 2))
++        self.assertTrue(torch.all(torch.isfinite(velocity)))
++
++    def test_build_teacher_alicfm_checkpoint(self):
++        in_dim = 3
++        out_dim = 2
++        mock_mlp = nn.Sequential(
++            nn.Linear(in_dim, 16),
++            nn.SELU(),
++            nn.Linear(16, out_dim),
++        )
++        with tempfile.TemporaryDirectory() as tmpdir:
++            ckpt_path = Path(tmpdir) / "alicfm_model.pt"
++            torch.save({"ot_cfm_model": mock_mlp.state_dict()}, ckpt_path)
++
++            teacher = build_teacher({"name": "alicfm", "checkpoint_path": ckpt_path, "num_marginals": 30})
++            self.assertIsInstance(teacher, ALICFMTeacherWrapper)
++            self.assertEqual(teacher.num_marginals, 30)
++
++            v = teacher(torch.tensor([0.2, 0.5]), torch.randn(2, 2))
++            self.assertEqual(v.shape, (2, 2))
++
++    def test_load_teacher_alicfm_dispatch(self):
++        in_dim = 3
++        out_dim = 2
++        mock_mlp = nn.Sequential(
++            nn.Linear(in_dim, 16),
++            nn.SELU(),
++            nn.Linear(16, out_dim),
++        )
++        with tempfile.TemporaryDirectory() as tmpdir:
++            ckpt_path = Path(tmpdir) / "alicfm_model.pt"
++            torch.save(mock_mlp, ckpt_path)
++
++            loaded_teacher, flow_config = load_teacher(
++                ckpt_path,
++                torch.device("cpu"),
++                teacher_arch="alicfm",
++            )
++            self.assertIsInstance(loaded_teacher, ALICFMTeacherWrapper)
++            self.assertEqual(flow_config["name"], "vanilla_cfm")
++
++
++class ZeroCenteringTest(unittest.TestCase):
++    def test_fourier_zero_centering_in_hclt(self):
++        parents = [-1, 0, 1]  # 3 variables
++        # Zero centered: cos(angles) - 1.0 -> 0.0 at t=0
++        hclt_centered = TimeDependentHCLTPC(
++            parents=parents,
++            num_latents=4,
++            time_conditioning="fourier",
++            time_embedding_dim=8,
++            fourier_zero_center=True,
++        )
++        t_zero = torch.tensor([0.0])
++        basis_centered, _ = hclt_centered._time_basis(t_zero)
++        self.assertTrue(torch.allclose(basis_centered, torch.zeros_like(basis_centered)))
++
++        # Uncentered: cos(0) = 1.0
++        hclt_uncentered = TimeDependentHCLTPC(
++            parents=parents,
++            num_latents=4,
++            time_conditioning="fourier",
++            time_embedding_dim=8,
++            fourier_zero_center=False,
++        )
++        basis_uncentered, _ = hclt_uncentered._time_basis(t_zero)
++        # Check that cosine terms (even columns) are 1.0
++        self.assertTrue(torch.any(basis_uncentered != 0.0))
++
++    def test_polynomial_zero_centering_in_gaussian_pc(self):
++        pc_centered = TimeDependentGaussianPC(
++            num_components=2,
++            dim=2,
++            time_order=3,
++            polynomial_zero_center=True,
++        )
++        # Shape has time_order=3 features
++        self.assertEqual(pc_centered.mean_coefficients.shape, (2, 2, 3))
++        t_zero = torch.tensor([0.0])
++        basis_c, dt_c = pc_centered._time_basis(t_zero)
++        self.assertEqual(basis_c.shape, (1, 3))
++        self.assertTrue(torch.all(torch.isfinite(dt_c)))
++
++        pc_uncentered = TimeDependentGaussianPC(
++            num_components=2,
++            dim=2,
++            time_order=3,
++            polynomial_zero_center=False,
++        )
++        # Shape has time_order + 1 = 4 features
++        self.assertEqual(pc_uncentered.mean_coefficients.shape, (2, 2, 4))
++        basis_u, dt_u = pc_uncentered._time_basis(t_zero)
++        self.assertEqual(basis_u.shape, (1, 4))
++        # Power 0 term at t=0 is 1.0
++        self.assertAlmostEqual(basis_u[0, 0].item(), 1.0)
++        # Power 0 derivative is 0.0, no NaNs
++        self.assertAlmostEqual(dt_u[0, 0].item(), 0.0)
++        self.assertTrue(torch.all(torch.isfinite(dt_u)))
++
++    def test_polynomial_zero_centering_in_region_pc(self):
++        rpc_centered = RegionGraphPC(
++            height=4,
++            width=4,
++            num_channels=2,
++            time_order=2,
++            polynomial_zero_center=True,
++        )
++        self.assertEqual(rpc_centered.mean_coefficients.shape[-1], 2)
++
++        rpc_uncentered = RegionGraphPC(
++            height=4,
++            width=4,
++            num_channels=2,
++            time_order=2,
++            polynomial_zero_center=False,
++        )
++        self.assertEqual(rpc_uncentered.mean_coefficients.shape[-1], 3)
++        basis, dt = rpc_uncentered._time_basis(torch.tensor([0.0]))
++        self.assertTrue(torch.all(torch.isfinite(dt)))
++
++
++class DistillationTimestepsAndLossTest(unittest.TestCase):
++    def test_interval_bound_timestep_sampling(self):
++        K_total = 60
++        k_indices = torch.tensor([0, 10, 25, 58, 59])
++        count = len(k_indices)
++
++        times = sample_distillation_timesteps(
++            count=count,
++            device=torch.device("cpu"),
++            dtype=torch.float32,
++            sampling="multimarginal_interval",
++            k_indices=k_indices,
++            K_total=K_total,
++        )
++
++        for i, k in enumerate(k_indices):
++            k_clamped = min(int(k), K_total - 2)
++            t_low = k_clamped / (K_total - 1)
++            t_high = (k_clamped + 1) / (K_total - 1)
++            self.assertGreaterEqual(times[i].item(), t_low - 1e-6)
++            self.assertLessEqual(times[i].item(), t_high + 1e-6)
++
++    def test_end_to_end_distillation_loss_on_knot(self):
++        torch.manual_seed(0)
++        student = TimeDependentGaussianPC(
++            num_components=2,
++            dim=2,
++            time_order=2,
++            polynomial_zero_center=False,
++        )
++        mock_teacher_mlp = nn.Sequential(
++            nn.Linear(3, 16),
++            nn.SELU(),
++            nn.Linear(16, 2),
++        )
++        teacher = ALICFMTeacherWrapper(mock_teacher_mlp, num_marginals=60)
++        flow_matcher = ConditionalFlowMatcher(sigma=0.0)
++
++        data = torch.randn(4, 2)
++        k_indices = torch.tensor([0, 5, 10, 15])
++
++        loss = distillation_loss(
++            student,
++            teacher,
++            flow_matcher,
++            data,
++            timestep_sampling="multimarginal_interval",
++            k_indices=k_indices,
++            K_total=60,
++        )
++        self.assertTrue(torch.isfinite(loss))
++        loss.backward()
++        self.assertIsNotNone(student.mean_coefficients.grad)
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/train.py b/train.py
+index dec6f9f..ff61153 100644
+--- a/train.py
++++ b/train.py
+@@ -4,11 +4,17 @@ import json
+ import math
+ import os
+ import time
++import sys
+ from collections import deque
+ from datetime import UTC, datetime
+ from functools import partial
+ from pathlib import Path
+ 
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
+ import torch
+ import wandb
+ from torch import nn
+@@ -18,7 +24,7 @@ from torchcfm.conditional_flow_matching import (
+ )
+ from torchvision.datasets import MNIST
+ 
+-from repc.data import MNIST_DIM, mnist_loader
++from repc.data import MNIST_DIM, mnist_loader, multimarginal_loader
+ from repc.flow import build_teacher, torchcfm_mnist_teacher_config
+ from repc.hclt import (
+     HCLT_MNIST_CONFIG,
+@@ -36,6 +42,8 @@ def parse_args() -> argparse.Namespace:
+     parser.add_argument("--teacher-checkpoint", type=Path)
+     parser.add_argument(
+         "--pc-structure",
++        "--student-model",
++        dest="pc_structure",
+         choices=("hclt", "pd", "gaussian"),
+         default="hclt",
+         help="student circuit backbone (HCLT is the literature-standard default)",
+@@ -64,6 +72,42 @@ def parse_args() -> argparse.Namespace:
+         default="ot",
+         help="teacher probability path; distillation inherits it from the checkpoint",
+     )
++    parser.add_argument(
++        "--dataset",
++        choices=("mnist", "knot", "ht206b1"),
++        default="mnist",
++        help="dataset for training or distillation",
++    )
++    parser.add_argument(
++        "--teacher-arch",
++        choices=("torchcfm", "alicfm"),
++        default="torchcfm",
++        help="teacher model architecture family",
++    )
++    parser.add_argument(
++        "--num-marginals",
++        type=int,
++        default=60,
++        help="number of temporal marginal snapshots for multi-marginal datasets",
++    )
++    parser.add_argument(
++        "--fourier-zero-center",
++        action=argparse.BooleanOptionalAction,
++        default=True,
++        help="forces t=0 to N(0, I) by centering the cosine term in Fourier PC embeddings",
++    )
++    parser.add_argument(
++        "--polynomial-zero-center",
++        action=argparse.BooleanOptionalAction,
++        default=True,
++        help="Forces t=0 to N(0, I) by omitting the t^0 basis term in standard PCs.",
++    )
++    parser.add_argument(
++        "--multimarginal-time-sampling",
++        choices=("uniform_global", "uniform_interval"),
++        default="uniform_interval",
++        help="timestep sampling mode for multi-marginal snapshot distillation",
++    )
+     parser.add_argument("--steps", type=int)
+     parser.add_argument("--epochs", type=int)
+     parser.add_argument("--batch-size", type=int, default=128)
+@@ -351,6 +395,7 @@ def build_student(config: dict) -> nn.Module:
+             num_components=config["num_components"],
+             dim=config["dim"],
+             time_order=config["time_order"],
++            polynomial_zero_center=config.get("polynomial_zero_center", True),
+         )
+     if config["name"] in ("pd", "region"):
+         return RegionGraphPC(
+@@ -358,6 +403,7 @@ def build_student(config: dict) -> nn.Module:
+             width=config["width"],
+             num_channels=config["num_channels"],
+             time_order=config["time_order"],
++            polynomial_zero_center=config.get("polynomial_zero_center", True),
+         )
+     if config["name"] == "hclt":
+         return TimeDependentHCLTPC(
+@@ -371,6 +417,7 @@ def build_student(config: dict) -> nn.Module:
+             leaf_distribution=config.get("leaf_distribution", "gaussian"),
+             leaf_components=config.get("leaf_components", 1),
+             num_categories=config.get("num_categories", 256),
++            fourier_zero_center=config.get("fourier_zero_center", True),
+         )
+     raise ValueError(f"unknown student: {config['name']}")
+ 
+@@ -396,8 +443,20 @@ def pair_flow_endpoints(
+ def load_teacher(
+     path: Path,
+     device: torch.device,
++    teacher_arch: str = "torchcfm",
+ ) -> tuple[nn.Module, dict]:
+-    checkpoint = torch.load(path, map_location=device, weights_only=True)
++    if teacher_arch == "alicfm":
++        teacher = build_teacher({"name": "alicfm", "checkpoint_path": path}).to(device)
++        flow_matching_config = {"name": "vanilla_cfm", "sigma": 0.0}
++        return teacher.eval(), flow_matching_config
++    try:
++        checkpoint = torch.load(path, map_location=device, weights_only=True)
++    except Exception:
++        checkpoint = torch.load(path, map_location=device, weights_only=False)
++    if isinstance(checkpoint, dict) and checkpoint.get("model_config", {}).get("name") == "alicfm":
++        teacher = build_teacher(checkpoint["model_config"]).to(device)
++        flow_matching_config = checkpoint.get("flow_matching_config", {"name": "vanilla_cfm", "sigma": 0.0})
++        return teacher.eval(), flow_matching_config
+     if checkpoint["model_type"] != "flow":
+         raise ValueError(f"{path} is not a flow checkpoint")
+     teacher = build_teacher(checkpoint["model_config"]).to(device)
+@@ -424,9 +483,19 @@ def sample_distillation_timesteps(
+     sampling: str = "uniform",
+     beta_alpha: float = 1.0,
+     beta_beta: float = 1.0,
++    k_indices: torch.Tensor | None = None,
++    K_total: int | None = None,
+ ) -> torch.Tensor:
+     """Sample path times; t=0 is noise and t=1 is the MNIST data endpoint."""
+-    if sampling == "uniform":
++    if sampling in ("multimarginal_interval", "uniform_interval") and k_indices is not None:
++        if K_total is None or K_total < 2:
++            raise ValueError("K_total must be at least 2 for interval time sampling")
++        k_float = k_indices.to(device=device, dtype=dtype)
++        k_clamped = torch.clamp(k_float, 0, K_total - 2)
++        t_lower = k_clamped / (K_total - 1)
++        t_upper = (k_clamped + 1.0) / (K_total - 1)
++        return t_lower + torch.rand(count, device=device, dtype=dtype) * (t_upper - t_lower)
++    if sampling in ("uniform", "uniform_global"):
+         return torch.rand(count, device=device, dtype=dtype)
+     if sampling == "beta":
+         concentration1 = torch.tensor(beta_alpha, device=device, dtype=dtype)
+@@ -448,6 +517,8 @@ def distillation_loss(
+     timestep_beta_alpha: float = 1.0,
+     timestep_beta_beta: float = 1.0,
+     return_timesteps: bool = False,
++    k_indices: torch.Tensor | None = None,
++    K_total: int | None = None,
+ ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+     noise = torch.randn_like(data)
+     times = sample_distillation_timesteps(
+@@ -457,6 +528,8 @@ def distillation_loss(
+         timestep_sampling,
+         timestep_beta_alpha,
+         timestep_beta_beta,
++        k_indices=k_indices,
++        K_total=K_total,
+     )
+     _, path_sample, _ = flow_matcher.sample_location_and_conditional_flow(
+         noise,
+@@ -683,10 +756,18 @@ def gradient_norm(parameters) -> float:
+ 
+ 
+ def wandb_tags(args: argparse.Namespace) -> list[str]:
+-    automatic_tags = ["mnist", args.flow_matcher]
++    # Dynamically pull the dataset and teacher, falling back to original defaults
++    dataset = getattr(args, "dataset", "mnist")
++    teacher = getattr(args, "teacher_arch", args.flow_matcher)
++
++    automatic_tags = [dataset, teacher]
++
+     if args.task == "flow":
+-        automatic_tags.extend(("teacher", "torchcfm"))
++        automatic_tags.extend(("teacher", teacher))
+     else:
++        # Dynamically pull the sampling strategy
++        sampling = getattr(args, "multimarginal_time_sampling", args.timestep_sampling)
++
+         automatic_tags.extend(
+             (
+                 "student",
+@@ -694,17 +775,19 @@ def wandb_tags(args: argparse.Namespace) -> list[str]:
+                 args.pc_layer,
+                 args.capacity_profile,
+                 f"endpoint-{args.endpoint_pretraining}",
+-                f"timesteps-{args.timestep_sampling}",
++                f"timesteps-{sampling}",
+             )
+         )
++
+     extra_tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+     return list(dict.fromkeys(automatic_tags + extra_tags))
+ 
+ 
+ def artifact_name(args: argparse.Namespace) -> str:
++    dataset = getattr(args, "dataset", "mnist")
+     if args.task == "flow":
+-        return f"mnist-flow-teacher-{args.flow_matcher}"
+-    return f"mnist-pc-student-{args.pc_structure}-{args.pc_layer}-{args.flow_matcher}"
++        return f"{dataset}-flow-teacher-{args.flow_matcher}"
++    return f"{dataset}-pc-student-{args.pc_structure}-{args.pc_layer}-{args.flow_matcher}"
+ 
+ 
+ def main() -> None:
+@@ -715,16 +798,26 @@ def main() -> None:
+     checkpoint_dir = run_dir / "checkpoints"
+     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+ 
+-    loader = mnist_loader(
+-        args.data_dir,
+-        train=True,
+-        batch_size=args.batch_size,
+-        num_workers=args.num_workers,
+-        validation_size=args.validation_size,
+-        split_seed=args.seed,
+-    )
++    if args.dataset == "mnist":
++        loader = mnist_loader(
++            args.data_dir,
++            train=True,
++            batch_size=args.batch_size,
++            num_workers=args.num_workers,
++            validation_size=args.validation_size,
++            split_seed=args.seed,
++        )
++    else:
++        loader = multimarginal_loader(
++            args.dataset,
++            args.batch_size,
++            K=args.num_marginals,
++            num_workers=args.num_workers,
++            data_dir=args.data_dir,
++            seed=args.seed,
++        )
+     validation_loader = None
+-    if args.task == "distill" and args.validation_size:
++    if args.dataset == "mnist" and args.task == "distill" and args.validation_size:
+         validation_loader = mnist_loader(
+             args.data_dir,
+             train=True,
+@@ -750,20 +843,24 @@ def main() -> None:
+         teacher, flow_matching_config = load_teacher(
+             args.teacher_checkpoint,
+             device,
++            teacher_arch=args.teacher_arch,
+         )
+-        args.flow_matcher = {
+-            "vanilla_cfm": "vanilla",
+-            "exact_ot_cfm": "ot",
+-        }[flow_matching_config["name"]]
++        if flow_matching_config["name"] in ("vanilla_cfm", "exact_ot_cfm"):
++            args.flow_matcher = {
++                "vanilla_cfm": "vanilla",
++                "exact_ot_cfm": "ot",
++            }[flow_matching_config["name"]]
+         flow_matcher = build_flow_matcher(flow_matching_config)
+         for parameter in teacher.parameters():
+             parameter.requires_grad_(False)
+         if args.pc_structure == "gaussian":
++            data_dim = 2 if args.dataset in ("knot", "ht206b1") else MNIST_DIM
+             model_config = {
+                 "name": "gaussian",
+                 "num_components": args.num_components,
+-                "dim": MNIST_DIM,
++                "dim": data_dim,
+                 "time_order": args.time_order,
++                "polynomial_zero_center": args.polynomial_zero_center,
+             }
+         elif args.pc_structure == "pd":
+             model_config = {
+@@ -772,66 +869,72 @@ def main() -> None:
+                 "width": 28,
+                 "num_channels": args.num_channels,
+                 "time_order": args.time_order,
++                "polynomial_zero_center": args.polynomial_zero_center,
+             }
+-        else:
+-            topology_path = args.hclt_topology
+-            if args.hclt_topology_protocol == "iclr2022-categorical":
+-                if topology_path is None:
+-                    topology_path = (
+-                        args.data_dir
+-                        / "MNIST"
+-                        / "hclt"
+-                        / "topology_iclr2022_msb3_n60000.pt"
++        elif args.pc_structure == "hclt":
++            if args.dataset in ("knot", "ht206b1") and args.hclt_topology is None:
++                parents = [-1, 0]
++                resolved_topology_config = {"topology": "2d_chain"}
++                topology_path = run_dir / "topology_2d.pt"
++            else:
++                topology_path = args.hclt_topology
++                if args.hclt_topology_protocol == "iclr2022-categorical":
++                    if topology_path is None:
++                        topology_path = (
++                            args.data_dir
++                            / "MNIST"
++                            / "hclt"
++                            / "topology_iclr2022_msb3_n60000.pt"
++                        )
++                    raw_topology_data = MNIST(
++                        root=args.data_dir,
++                        train=True,
++                        download=True,
++                    ).data.flatten(1)
++                    parents, resolved_topology_config = (
++                        load_or_learn_iclr2022_hclt_topology(
++                            raw_topology_data,
++                            topology_path,
++                            device,
++                            sample_chunk_size=args.hclt_mi_sample_chunk_size,
++                        )
++                    )
++                else:
++                    topology_config = {
++                        "num_samples": args.hclt_samples,
++                        "num_bins": args.hclt_num_bins,
++                        "sigma": args.hclt_sigma,
++                        "chunk_size": args.hclt_chunk_size,
++                    }
++                    if args.validation_size:
++                        topology_config["validation_size"] = args.validation_size
++                    if topology_path is None:
++                        sigma_label = str(args.hclt_sigma).replace(".", "p")
++                        topology_path = (
++                            args.data_dir
++                            / "MNIST"
++                            / "hclt"
++                            / (
++                                f"topology_x{args.hclt_samples}_"
++                                f"b{args.hclt_num_bins}_s{sigma_label}_"
++                                f"c{args.hclt_chunk_size}_seed{args.seed}.pt"
++                            )
++                        )
++                    topology_loader = mnist_loader(
++                        args.data_dir,
++                        train=True,
++                        batch_size=args.batch_size,
++                        num_workers=args.num_workers,
++                        validation_size=args.validation_size,
++                        split_seed=args.seed,
+                     )
+-                raw_topology_data = MNIST(
+-                    root=args.data_dir,
+-                    train=True,
+-                    download=True,
+-                ).data.flatten(1)
+-                parents, resolved_topology_config = (
+-                    load_or_learn_iclr2022_hclt_topology(
+-                        raw_topology_data,
++                    parents, resolved_topology_config = load_or_learn_hclt_topology(
++                        topology_loader,
+                         topology_path,
+                         device,
+-                        sample_chunk_size=args.hclt_mi_sample_chunk_size,
+-                    )
+-                )
+-            else:
+-                topology_config = {
+-                    "num_samples": args.hclt_samples,
+-                    "num_bins": args.hclt_num_bins,
+-                    "sigma": args.hclt_sigma,
+-                    "chunk_size": args.hclt_chunk_size,
+-                }
+-                if args.validation_size:
+-                    topology_config["validation_size"] = args.validation_size
+-                if topology_path is None:
+-                    sigma_label = str(args.hclt_sigma).replace(".", "p")
+-                    topology_path = (
+-                        args.data_dir
+-                        / "MNIST"
+-                        / "hclt"
+-                        / (
+-                            f"topology_x{args.hclt_samples}_"
+-                            f"b{args.hclt_num_bins}_s{sigma_label}_"
+-                            f"c{args.hclt_chunk_size}_seed{args.seed}.pt"
+-                        )
++                        topology_config,
++                        args.seed,
+                     )
+-                topology_loader = mnist_loader(
+-                    args.data_dir,
+-                    train=True,
+-                    batch_size=args.batch_size,
+-                    num_workers=args.num_workers,
+-                    validation_size=args.validation_size,
+-                    split_seed=args.seed,
+-                )
+-                parents, resolved_topology_config = load_or_learn_hclt_topology(
+-                    topology_loader,
+-                    topology_path,
+-                    device,
+-                    topology_config,
+-                    args.seed,
+-                )
+             model_config = {
+                 "name": "hclt",
+                 "parents": parents,
+@@ -843,17 +946,23 @@ def main() -> None:
+                 "time_feature_seed": args.seed,
+                 "leaf_distribution": args.hclt_leaf_distribution,
+                 "leaf_components": args.hclt_leaf_components,
++                "fourier_zero_center": args.fourier_zero_center,
+                 "topology_config": resolved_topology_config,
+                 "topology_path": str(topology_path.resolve()),
+                 "endpoint_pretraining": args.endpoint_pretraining,
+             }
+         model = build_student(model_config).to(device)
++        timestep_sampling = (
++            args.multimarginal_time_sampling
++            if args.dataset != "mnist"
++            else args.timestep_sampling
++        )
+         loss_function = partial(
+             distillation_loss,
+             model,
+             teacher,
+             flow_matcher,
+-            timestep_sampling=args.timestep_sampling,
++            timestep_sampling=timestep_sampling,
+             timestep_beta_alpha=args.timestep_beta_alpha,
+             timestep_beta_beta=args.timestep_beta_beta,
+             return_timesteps=True,
+@@ -1015,14 +1124,29 @@ def main() -> None:
+                     "elapsed_seconds",
+                 )
+             )
++            is_multimarginal = args.dataset != "mnist"
+             for step in range(1, total_steps + 1):
+                 try:
+-                    images, _ = next(batches)
++                    batch = next(batches)
+                 except StopIteration:
+                     batches = iter(loader)
+-                    images, _ = next(batches)
+-                images = images.to(device, non_blocking=True)
+-                loss_result = loss_function(images)
++                    batch = next(batches)
++                if is_multimarginal:
++                    images, k_indices = batch
++                    images = images.to(device, non_blocking=True)
++                    k_indices = k_indices.to(device, non_blocking=True)
++                    if args.task == "distill":
++                        loss_result = loss_function(
++                            images,
++                            k_indices=k_indices,
++                            K_total=args.num_marginals,
++                        )
++                    else:
++                        loss_result = loss_function(images)
++                else:
++                    images, _ = batch
++                    images = images.to(device, non_blocking=True)
++                    loss_result = loss_function(images)
+                 sampled_timesteps = None
+                 if isinstance(loss_result, tuple):
+                     loss, sampled_timesteps = loss_result
+diff --git a/train_endpoint_hclt.py b/train_endpoint_hclt.py
+index 88f0f28..d2c9404 100644
+--- a/train_endpoint_hclt.py
++++ b/train_endpoint_hclt.py
+@@ -11,9 +11,15 @@ import gc
+ import json
+ import math
+ import os
++import sys
+ import time
+ from pathlib import Path
+ 
++# Ensure local repository root takes precedence over any installed site-packages
++_REPO_ROOT = str(Path(__file__).resolve().parent)
++if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
++    sys.path.insert(0, _REPO_ROOT)
++
+ import torch
+ import wandb
+ from torchvision.datasets import MNIST

@@ -171,6 +171,12 @@ def parse_args() -> argparse.Namespace:
         help="optional t=1 PC pretraining stage before velocity distillation",
     )
     parser.add_argument(
+        "--density-weight",
+        type=float,
+        default=0.0,
+        help="Weight for negative log-likelihood density loss at t=1 (0 = disabled).",
+    )
+    parser.add_argument(
         "--endpoint-em-epochs",
         type=int,
         default=20,
@@ -519,7 +525,8 @@ def distillation_loss(
     return_timesteps: bool = False,
     k_indices: torch.Tensor | None = None,
     K_total: int | None = None,
-) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    density_weight: float = 0.0,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, dict]:
     noise = torch.randn_like(data)
     times = sample_distillation_timesteps(
         data.shape[0],
@@ -540,8 +547,15 @@ def distillation_loss(
         teacher_velocity = teacher(times, path_sample)
     pc_velocity = pc.velocity(path_sample.flatten(1), times)
     loss = nn.functional.mse_loss(pc_velocity, teacher_velocity.flatten(1))
+    metrics = {"distill_mse": loss.item()}
+    if density_weight > 0.0:
+        density_loss = -pc.log_prob(
+            data.flatten(1), torch.tensor(1.0, device=data.device)
+        ).mean()
+        metrics["density_loss"] = density_loss.item()
+        loss = loss + density_weight * density_loss
     if return_timesteps:
-        return loss, times.detach()
+        return loss, times.detach(), metrics
     return loss
 
 
@@ -965,6 +979,7 @@ def main() -> None:
             timestep_sampling=timestep_sampling,
             timestep_beta_alpha=args.timestep_beta_alpha,
             timestep_beta_beta=args.timestep_beta_beta,
+            density_weight=args.density_weight,
             return_timesteps=True,
         )
         total_steps = args.steps
@@ -1148,8 +1163,12 @@ def main() -> None:
                     images = images.to(device, non_blocking=True)
                     loss_result = loss_function(images)
                 sampled_timesteps = None
+                batch_metrics = {}
                 if isinstance(loss_result, tuple):
-                    loss, sampled_timesteps = loss_result
+                    if len(loss_result) == 3:
+                        loss, sampled_timesteps, batch_metrics = loss_result
+                    else:
+                        loss, sampled_timesteps = loss_result
                 else:
                     loss = loss_result
                 optimizer.zero_grad(set_to_none=True)
@@ -1189,6 +1208,8 @@ def main() -> None:
                     "performance/steps_per_second": steps_per_second,
                     "performance/elapsed_seconds": elapsed,
                 }
+                for k, v in batch_metrics.items():
+                    metrics[f"train/{k}"] = v
                 timestep_mean = ""
                 timestep_std = ""
                 timestep_low_fraction = ""
@@ -1322,6 +1343,26 @@ def main() -> None:
             model_artifact,
             aliases=["latest", f"seed-{args.seed}"],
         )
+
+        if args.dataset == "knot":
+            try:
+                import subprocess
+                import sys
+                print("Generating final ODE path plot for student...")
+                output_img = run_dir / "student_trajectories.png"
+                cmd = [
+                    sys.executable, "scripts/plot_ode_path.py",
+                    "--model-type", "student",
+                    "--checkpoint", str(checkpoint_path),
+                    "--output", str(output_img)
+                ]
+                subprocess.run(cmd, check=True)
+                tracking_run.log({
+                    "student/ode_path": wandb.Image(str(output_img), caption="Student ODE Path")
+                })
+            except Exception as e:
+                print(f"Failed to plot ODE path: {e}")
+                
     print(f"run saved to {run_dir.resolve()}")
 
 

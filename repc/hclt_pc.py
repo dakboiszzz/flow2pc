@@ -172,42 +172,43 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             self.log_scale_coefficients = None
             return
 
-        if time_conditioning == "fourier":
-            # Match the fixed Gaussian Fourier feature layer used by PICs. The
-            # cosine branch is centered so every feature is zero at t=0 and
-            # the PC path therefore starts at exactly N(0, I).
-            self.register_buffer(
-                "time_frequencies",
-                torch.randn(
-                    time_embedding_dim // 2,
-                    generator=torch.Generator().manual_seed(time_feature_seed),
-                ),
+        if time_conditioning in ("polynomial", "fourier"):
+            if time_conditioning == "fourier":
+                # Match the fixed Gaussian Fourier feature layer used by PICs. The
+                # cosine branch is centered so every feature is zero at t=0 and
+                # the PC path therefore starts at exactly N(0, I).
+                self.register_buffer(
+                    "time_frequencies",
+                    torch.randn(
+                        time_embedding_dim // 2,
+                        generator=torch.Generator().manual_seed(time_feature_seed),
+                    ),
+                )
+                num_time_features = time_embedding_dim
+            else:
+                self.register_buffer(
+                    "time_frequencies",
+                    torch.empty(0),
+                    persistent=False,
+                )
+                num_time_features = time_order
+            coefficient_shape = (self.dim, channels, num_time_features)
+            if leaf_distribution == "gaussian-mixture":
+                coefficient_shape = (
+                    self.dim,
+                    channels,
+                    leaf_components,
+                    num_time_features,
+                )
+                self.leaf_mixture_logits = nn.Parameter(
+                    torch.zeros(self.dim, channels, leaf_components)
+                )
+            else:
+                self.leaf_mixture_logits = None
+            self.mean_coefficients = nn.Parameter(0.01 * torch.randn(coefficient_shape))
+            self.log_scale_coefficients = nn.Parameter(
+                0.01 * torch.randn(coefficient_shape)
             )
-            num_time_features = time_embedding_dim
-        else:
-            self.register_buffer(
-                "time_frequencies",
-                torch.empty(0),
-                persistent=False,
-            )
-            num_time_features = time_order
-        coefficient_shape = (self.dim, channels, num_time_features)
-        if leaf_distribution == "gaussian-mixture":
-            coefficient_shape = (
-                self.dim,
-                channels,
-                leaf_components,
-                num_time_features,
-            )
-            self.leaf_mixture_logits = nn.Parameter(
-                torch.zeros(self.dim, channels, leaf_components)
-            )
-        else:
-            self.leaf_mixture_logits = None
-        self.mean_coefficients = nn.Parameter(0.01 * torch.randn(coefficient_shape))
-        self.log_scale_coefficients = nn.Parameter(
-            0.01 * torch.randn(coefficient_shape)
-        )
 
     def _time_basis(self, time: torch.Tensor):
         if self.time_conditioning == "fourier":
@@ -245,6 +246,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
     def leaf_parameters(self, time: torch.Tensor):
         if self.leaf_distribution == "categorical":
             raise RuntimeError("categorical HCLT leaves only define the t=1 endpoint")
+
         basis, derivative = self._time_basis(time)
         if self.leaf_distribution == "gaussian-mixture" and time.ndim == 0:
             mean = torch.einsum("dhkp,p->dhk", self.mean_coefficients, basis)
