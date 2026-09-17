@@ -120,6 +120,33 @@ def generate_knot_distribution(
     return torch.from_numpy(samples).float()
 
 
+def generate_spiral_distribution(
+    K: int = 60,
+    samples_per_marginal: int = 10,
+    std: float = 0.1,
+    seed: int | None = None,
+) -> torch.Tensor:
+    """Generate synthetic Spiral distribution.
+
+    Returns a torch.Tensor of shape [K, samples_per_marginal, 2].
+    """
+    if K <= 0:
+        raise ValueError(f"K (number of marginals) must be positive, got {K}")
+
+    t = np.linspace(0.0, 3.0, K)
+    
+    # \mu_X(t) and \mu_Y(t) for an expanding spiral
+    mu_x = (1.0 + t) * np.cos(2.0 * np.pi * t)
+    mu_y = (1.0 + t) * np.sin(2.0 * np.pi * t)
+
+    rng = np.random.default_rng(seed)
+    x_samples = mu_x[:, None] + rng.normal(0.0, std, size=(K, samples_per_marginal))
+    y_samples = mu_y[:, None] + rng.normal(0.0, std, size=(K, samples_per_marginal))
+
+    samples = np.stack([x_samples, y_samples], axis=-1)
+    return torch.from_numpy(samples).float()
+
+
 class OTCoupledDataset(Dataset):
     """Dataset yielding (x_k, x_{k+1}, k) from precomputed multi-marginal OT couplings."""
 
@@ -154,6 +181,12 @@ def multimarginal_loader(
     dataset_name_lower = dataset_name.lower()
     if dataset_name_lower == "knot":
         data = generate_knot_distribution(
+            K=K,
+            samples_per_marginal=samples_per_marginal,
+            seed=seed,
+        )
+    elif dataset_name_lower == "spiral":
+        data = generate_spiral_distribution(
             K=K,
             samples_per_marginal=samples_per_marginal,
             seed=seed,

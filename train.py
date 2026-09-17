@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("mnist", "knot", "ht206b1"),
+        choices=("mnist", "knot", "spiral", "ht206b1"),
         default="mnist",
         help="dataset for training or distillation",
     )
@@ -916,7 +916,7 @@ def main() -> None:
         for parameter in teacher.parameters():
             parameter.requires_grad_(False)
         if args.pc_structure == "gaussian":
-            data_dim = 2 if args.dataset in ("knot", "ht206b1") else MNIST_DIM
+            data_dim = 2 if args.dataset in ("knot", "spiral", "ht206b1") else MNIST_DIM
             model_config = {
                 "name": "gaussian",
                 "num_components": args.num_components,
@@ -934,7 +934,7 @@ def main() -> None:
                 "polynomial_zero_center": args.polynomial_zero_center,
             }
         elif args.pc_structure == "hclt":
-            if args.dataset in ("knot", "ht206b1") and args.hclt_topology is None:
+            if args.dataset in ("knot", "spiral", "ht206b1") and args.hclt_topology is None:
                 parents = [-1, 0]
                 resolved_topology_config = {"topology": "2d_chain"}
                 topology_path = run_dir / "topology_2d.pt"
@@ -1394,15 +1394,16 @@ def main() -> None:
             aliases=["latest", f"seed-{args.seed}"],
         )
 
-        if args.dataset == "knot":
+        if args.dataset in ("knot", "spiral"):
             try:
                 import subprocess
                 import sys
-                print("Generating final ODE path plot for student...")
+                print(f"Generating final ODE path plot for student on {args.dataset} dataset...")
                 output_img = run_dir / "student_trajectories.png"
                 cmd = [
                     sys.executable, "scripts/plot_ode_path.py",
                     "--model-type", "student",
+                    "--dataset", args.dataset,
                     "--checkpoint", str(checkpoint_path),
                     "--output", str(output_img)
                 ]

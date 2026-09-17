@@ -146,3 +146,5 @@ train_and_evaluate \
 
 "${python_bin}" summarize_benchmark.py
 echo "All standard vanilla/no-EM runs, evaluations, and summary tables completed."
+
+
