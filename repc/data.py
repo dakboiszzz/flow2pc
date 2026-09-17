@@ -6,9 +6,30 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
+from torchcfm.optimal_transport import OTPlanSampler
+
 MNIST_DIM = 28 * 28
 MNIST_SHAPE = (1, 28, 28)
 
+def precompute_ot_couplings(data: torch.Tensor, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+    """Precompute exact Optimal Transport plan pairings for all K-1 transitions."""
+    K, N, D = data.shape
+    ot_sampler = OTPlanSampler(method="exact")
+    coupled_x0 = []
+    coupled_x1 = []
+
+    print(f"Precomputing exact OT plans across {K - 1} marginal transitions ({N} samples each)...")
+    for k in range(K - 1):
+        m0 = data[k]
+        m1 = data[k + 1]
+        p0, p1 = ot_sampler.sample_plan(m0, m1)
+        coupled_x0.append(p0)
+        coupled_x1.append(p1)
+
+    # Shape: [K-1, N, D]
+    x0_all = torch.stack(coupled_x0, dim=0).to(device)
+    x1_all = torch.stack(coupled_x1, dim=0).to(device)
+    return x0_all, x1_all
 
 def quantize_mnist(images):
     """Clamp and quantize continuous [-1, 1] samples to MNIST's 256 bins."""
@@ -87,7 +108,7 @@ def generate_knot_distribution(
 
     # \mu_Y(t)
     mu_y1 = -0.5 * np.tanh(5.0 * (t1 + 1.0)) + 0.5
-    mu_y2 = np.sin(2.0 * np.pi * (t2 - 0.75))
+    mu_y2 = -np.sin(2.0 * np.pi * (t2 - 0.75)) - 1.0
     mu_y3 = 0.5 * np.tanh(5.0 * (t3 - 1.0)) + 0.5
     mu_y = np.concatenate([mu_y1, mu_y2, mu_y3])
 
@@ -99,27 +120,24 @@ def generate_knot_distribution(
     return torch.from_numpy(samples).float()
 
 
-class MultiMarginalDataset(Dataset):
-    """Dataset wrapping multi-marginal snapshots [K, N, D].
+class OTCoupledDataset(Dataset):
+    """Dataset yielding (x_k, x_{k+1}, k) from precomputed multi-marginal OT couplings."""
 
-    Flattened across marginals while retaining the temporal k_index (0 to K-1).
-    """
-
-    def __init__(self, data: torch.Tensor):
-        if data.ndim != 3:
-            raise ValueError(f"expected 3D tensor [K, N, D], got shape {tuple(data.shape)}")
-        self.data = data
-        self.K = data.shape[0]
-        self.N = data.shape[1]
-        self.D = data.shape[2]
+    def __init__(self, x0_all: torch.Tensor, x1_all: torch.Tensor):
+        if x0_all.ndim != 3 or x1_all.ndim != 3:
+            raise ValueError("expected 3D tensors [K-1, N, D]")
+        self.x0 = x0_all
+        self.x1 = x1_all
+        self.num_transitions = x0_all.shape[0]
+        self.N = x0_all.shape[1]
 
     def __len__(self) -> int:
-        return self.K * self.N
+        return self.num_transitions * self.N
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         k_index = index // self.N
         n_index = index % self.N
-        return self.data[k_index, n_index], torch.tensor(k_index, dtype=torch.long)
+        return self.x0[k_index, n_index], self.x1[k_index, n_index], torch.tensor(k_index, dtype=torch.long)
 
 
 def multimarginal_loader(
@@ -174,7 +192,10 @@ def multimarginal_loader(
     else:
         raise ValueError(f"unknown multi-marginal dataset: {dataset_name}")
 
-    dataset = MultiMarginalDataset(data)
+    # Precompute OT plans for all K-1 marginal transitions
+    x0_all, x1_all = precompute_ot_couplings(data, device=torch.device('cpu'))
+
+    dataset = OTCoupledDataset(x0_all, x1_all)
     return DataLoader(
         dataset,
         batch_size=batch_size,

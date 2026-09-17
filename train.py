@@ -474,8 +474,13 @@ def flow_matching_loss(
     model: nn.Module,
     flow_matcher: ConditionalFlowMatcher,
     data: torch.Tensor,
+    next_data: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    noise = torch.randn_like(data)
+    if next_data is not None:
+        noise = data
+        data = next_data
+    else:
+        noise = torch.randn_like(data)
     time, path_sample, target_velocity = (
         flow_matcher.sample_location_and_conditional_flow(noise, data)
     )
@@ -519,6 +524,7 @@ def distillation_loss(
     teacher: nn.Module,
     flow_matcher: ConditionalFlowMatcher,
     data: torch.Tensor,
+    next_data: torch.Tensor | None = None,
     timestep_sampling: str = "uniform",
     timestep_beta_alpha: float = 1.0,
     timestep_beta_beta: float = 1.0,
@@ -527,6 +533,48 @@ def distillation_loss(
     K_total: int | None = None,
     density_weight: float = 0.0,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, dict]:
+    if next_data is not None:
+        noise = data
+        data = next_data
+        tau_sampling = (
+            "uniform"
+            if timestep_sampling in ("multimarginal_interval", "uniform_interval", "uniform_global")
+            else timestep_sampling
+        )
+        times = sample_distillation_timesteps(
+            data.shape[0],
+            data.device,
+            data.dtype,
+            tau_sampling,
+            timestep_beta_alpha,
+            timestep_beta_beta,
+            k_indices=None,
+            K_total=None,
+        )
+        _, path_sample, _ = flow_matcher.sample_location_and_conditional_flow(
+            noise,
+            data,
+            times,
+        )
+        
+        global_times = (k_indices.to(data.dtype) + times) / (K_total - 1)
+
+        with torch.no_grad():
+            teacher_velocity = teacher(global_times, path_sample)
+        pc_velocity = pc.velocity(path_sample.flatten(1), global_times)
+        loss = nn.functional.mse_loss(pc_velocity, teacher_velocity.flatten(1))
+        
+        metrics = {"distill_mse": loss.item()}
+        if density_weight > 0.0:
+            density_loss = -pc.log_prob(
+                data.flatten(1), torch.tensor(1.0, device=data.device)
+            ).mean()
+            metrics["density_loss"] = density_loss.item()
+            loss = loss + density_weight * density_loss
+        if return_timesteps:
+            return loss, global_times.detach(), metrics
+        return loss
+
     noise = torch.randn_like(data)
     times = sample_distillation_timesteps(
         data.shape[0],
@@ -1147,17 +1195,19 @@ def main() -> None:
                     batches = iter(loader)
                     batch = next(batches)
                 if is_multimarginal:
-                    images, k_indices = batch
+                    images, next_images, k_indices = batch
                     images = images.to(device, non_blocking=True)
+                    next_images = next_images.to(device, non_blocking=True)
                     k_indices = k_indices.to(device, non_blocking=True)
                     if args.task == "distill":
                         loss_result = loss_function(
                             images,
+                            next_data=next_images,
                             k_indices=k_indices,
                             K_total=args.num_marginals,
                         )
                     else:
-                        loss_result = loss_function(images)
+                        loss_result = loss_function(images, next_data=next_images)
                 else:
                     images, _ = batch
                     images = images.to(device, non_blocking=True)

@@ -9,8 +9,7 @@ if _REPO_ROOT not in sys.path or sys.path[0] != _REPO_ROOT:
 
 import torch
 from torch import nn
-from torchcfm.optimal_transport import OTPlanSampler
-from repc.data import generate_knot_distribution
+from repc.data import generate_knot_distribution, precompute_ot_couplings
 
 
 class KnotVelocityMLP(nn.Module):
@@ -42,7 +41,7 @@ class KnotVelocityMLP(nn.Module):
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a Knot ALI-CFM teacher checkpoint")
     parser.add_argument("--output", type=Path, default=Path("checkpoints/knot_alicfm_teacher.pt"))
-    parser.add_argument("--steps", type=int, default=15000)
+    parser.add_argument("--steps", type=int, default=20000)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=256)
@@ -52,25 +51,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def precompute_ot_couplings(data: torch.Tensor, device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
-    """Precompute exact Optimal Transport plan pairings for all K-1 transitions."""
-    K, N, D = data.shape
-    ot_sampler = OTPlanSampler(method="exact")
-    coupled_x0 = []
-    coupled_x1 = []
 
-    print(f"Precomputing exact OT plans across {K - 1} marginal transitions ({N} samples each)...")
-    for k in range(K - 1):
-        m0 = data[k]
-        m1 = data[k + 1]
-        p0, p1 = ot_sampler.sample_plan(m0, m1)
-        coupled_x0.append(p0)
-        coupled_x1.append(p1)
-
-    # Shape: [K-1, N, D]
-    x0_all = torch.stack(coupled_x0, dim=0).to(device)
-    x1_all = torch.stack(coupled_x1, dim=0).to(device)
-    return x0_all, x1_all
 
 
 def main():
