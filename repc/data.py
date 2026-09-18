@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset, WeightedRandomSampler
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
@@ -176,8 +176,21 @@ def multimarginal_loader(
     num_workers: int = 0,
     data_dir: Path | str = "data",
     seed: int | None = None,
+    time_sampling: str = "uniform_interval",
+    time_beta_alpha: float = 5.0,
+    time_beta_beta: float = 5.0,
 ) -> DataLoader:
-    """Create a DataLoader for multi-marginal snapshot datasets."""
+    """Create a DataLoader for multi-marginal snapshot datasets.
+
+    ``middle_beta`` changes which OT transition is sampled, while retaining
+    the paired ``(x_k, x_{k+1})`` examples needed to construct a valid local
+    flow-matching path.  The transition midpoint is weighted by the density
+    of ``Beta(time_beta_alpha, time_beta_beta)``; the default is uniform.
+    """
+    if time_sampling not in ("uniform_global", "uniform_interval", "middle_beta"):
+        raise ValueError(f"unknown multimarginal time sampling mode: {time_sampling}")
+    if time_beta_alpha <= 0 or time_beta_beta <= 0:
+        raise ValueError("multimarginal Beta concentrations must be positive")
     dataset_name_lower = dataset_name.lower()
     if dataset_name_lower == "knot":
         data = generate_knot_distribution(
@@ -229,11 +242,29 @@ def multimarginal_loader(
     x0_all, x1_all = precompute_ot_couplings(data, device=torch.device('cpu'))
 
     dataset = OTCoupledDataset(x0_all, x1_all)
+    sampler = None
+    if time_sampling == "middle_beta":
+        # Every transition has N examples.  Weighting by transition midpoint
+        # gives a discrete approximation to a global Beta time distribution
+        # without pairing x_k with data from a different transition.
+        transition_midpoints = (
+            torch.arange(dataset.num_transitions, dtype=torch.float64) + 0.5
+        ) / dataset.num_transitions
+        weights = transition_midpoints.pow(time_beta_alpha - 1.0) * (
+            1.0 - transition_midpoints
+        ).pow(time_beta_beta - 1.0)
+        weights = weights.repeat_interleave(dataset.N).double()
+        sampler = WeightedRandomSampler(
+            weights=weights,
+            num_samples=len(dataset),
+            replacement=True,
+        )
+
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        shuffle=shuffle,
+        shuffle=shuffle if sampler is None else False,
+        sampler=sampler,
         num_workers=num_workers,
         drop_last=shuffle,
     )
-

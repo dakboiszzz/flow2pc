@@ -104,9 +104,24 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--multimarginal-time-sampling",
-        choices=("uniform_global", "uniform_interval"),
+        choices=("uniform_global", "uniform_interval", "middle_beta"),
         default="uniform_interval",
-        help="timestep sampling mode for multi-marginal snapshot distillation",
+        help=(
+            "timestep sampling mode for multi-marginal snapshot distillation; "
+            "middle_beta oversamples transitions near t=0.5"
+        ),
+    )
+    parser.add_argument(
+        "--multimarginal-beta-alpha",
+        type=float,
+        default=5.0,
+        help="alpha concentration for --multimarginal-time-sampling middle_beta",
+    )
+    parser.add_argument(
+        "--multimarginal-beta-beta",
+        type=float,
+        default=5.0,
+        help="beta concentration for --multimarginal-time-sampling middle_beta",
     )
     parser.add_argument("--steps", type=int)
     parser.add_argument("--epochs", type=int)
@@ -359,6 +374,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("endpoint pretraining is only supported for distillation")
     if args.timestep_beta_alpha <= 0 or args.timestep_beta_beta <= 0:
         parser.error("Beta timestep concentrations must be positive")
+    if args.multimarginal_beta_alpha <= 0 or args.multimarginal_beta_beta <= 0:
+        parser.error("Multimarginal Beta concentrations must be positive")
     if args.pc_structure != "hclt" and args.time_conditioning != "polynomial":
         parser.error("--time-conditioning currently applies to HCLT students")
     if args.pc_structure != "hclt" and (
@@ -506,7 +523,10 @@ def sample_distillation_timesteps(
         t_lower = k_clamped / (K_total - 1)
         t_upper = (k_clamped + 1.0) / (K_total - 1)
         return t_lower + torch.rand(count, device=device, dtype=dtype) * (t_upper - t_lower)
-    if sampling in ("uniform", "uniform_global"):
+    if sampling in ("uniform", "uniform_global", "middle_beta"):
+        # ``middle_beta`` is applied to the OT transition index by
+        # multimarginal_loader; interpolation within the selected interval
+        # remains uniform so the paired endpoints define the path.
         return torch.rand(count, device=device, dtype=dtype)
     if sampling == "beta":
         concentration1 = torch.tensor(beta_alpha, device=device, dtype=dtype)
@@ -538,7 +558,13 @@ def distillation_loss(
         data = next_data
         tau_sampling = (
             "uniform"
-            if timestep_sampling in ("multimarginal_interval", "uniform_interval", "uniform_global")
+            if timestep_sampling
+            in (
+                "multimarginal_interval",
+                "uniform_interval",
+                "uniform_global",
+                "middle_beta",
+            )
             else timestep_sampling
         )
         times = sample_distillation_timesteps(
@@ -877,6 +903,9 @@ def main() -> None:
             num_workers=args.num_workers,
             data_dir=args.data_dir,
             seed=args.seed,
+            time_sampling=args.multimarginal_time_sampling,
+            time_beta_alpha=args.multimarginal_beta_alpha,
+            time_beta_beta=args.multimarginal_beta_beta,
         )
     validation_loader = None
     if args.dataset == "mnist" and args.task == "distill" and args.validation_size:

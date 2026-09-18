@@ -293,6 +293,30 @@ full evaluation with:
 bash scripts/run_beta_timestep_ablation.sh
 ```
 
+### Middle-timestep sampling for spiral/knot snapshots
+
+For the synthetic multi-marginal datasets, each training example is an OT-coupled
+transition `(x_k, x_{k+1})`. The existing `uniform_interval` mode samples these
+transitions uniformly. `middle_beta` instead samples transition `k` with weight
+proportional to the density of `Beta(alpha, beta)` at its midpoint, preserving a
+valid local interpolation while concentrating updates around the middle of the
+trajectory. For example:
+
+```bash
+python train.py distill \
+  --dataset spiral \
+  --teacher-checkpoint checkpoints/spiral_alicfm_teacher.pt \
+  --multimarginal-time-sampling middle_beta \
+  --multimarginal-beta-alpha 5.0 \
+  --multimarginal-beta-beta 5.0
+```
+
+The full capacity/learning-rate comparison is available as:
+
+```bash
+bash scripts/sweep_spiral_middle_timestep.sh
+```
+
 ### Two-stage endpoint EM and flow distillation
 
 Endpoint pretraining is independently controlled by
