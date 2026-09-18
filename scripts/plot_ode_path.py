@@ -166,9 +166,20 @@ def main():
     mean_mse = float(np.mean((end_sim.mean(axis=0) - end_gt.mean(axis=0)) ** 2))
     var_mse = float(np.mean((end_sim.var(axis=0) - end_gt.var(axis=0)) ** 2))
     
+    # Compute Continuous NLL
+    with torch.no_grad():
+        time = torch.tensor(1.0, device=device)
+        gt_tensor = torch.from_numpy(end_gt).to(device)
+        if args.model_type == "student":
+            log_probs = model.log_prob(gt_tensor, time)
+            nll = -log_probs.mean().item()
+        else:
+            nll = 0.0 # Teacher is an ODE, calculating exact NLL requires Hutchinson trace estimator, so skip for now.
+
     # Print in a format the wrapper script can easily parse
     print(f"METRIC_MEAN_MSE={mean_mse}")
     print(f"METRIC_VAR_MSE={var_mse}")
+    print(f"METRIC_NLL_NATS={nll}")
 
 if __name__ == "__main__":
     main()

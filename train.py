@@ -1407,13 +1407,30 @@ def main() -> None:
                     "--checkpoint", str(checkpoint_path),
                     "--output", str(output_img)
                 ]
-                subprocess.run(cmd, check=True)
-                tracking_run.log({
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                print(result.stdout)
+                
+                # Parse metrics from stdout
+                ode_metrics = {}
+                for line in result.stdout.splitlines():
+                    if line.startswith("METRIC_"):
+                        key, val = line.strip().split("=")
+                        # convert METRIC_MEAN_MSE to validation/trajectory_mean_mse
+                        wandb_key = "validation/trajectory_" + key.replace("METRIC_", "").lower()
+                        ode_metrics[wandb_key] = float(val)
+                
+                log_dict = {
                     "student/ode_path": wandb.Image(str(output_img), caption="Student ODE Path")
-                })
+                }
+                log_dict.update(ode_metrics)
+                tracking_run.log(log_dict)
+                for k, v in ode_metrics.items():
+                    tracking_run.summary[k] = v
+            except subprocess.CalledProcessError as e:
+                print(f"Failed to plot ODE path: {e}")
+                print(e.stderr)
             except Exception as e:
                 print(f"Failed to plot ODE path: {e}")
-                
     print(f"run saved to {run_dir.resolve()}")
 
 
