@@ -286,7 +286,11 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             parameters = tuple(parameter[None] for parameter in parameters)
         if self.leaf_distribution == "gaussian":
             parameters = tuple(parameter[..., None] for parameter in parameters)
-        return parameters
+        
+        mean, mean_dt, log_scale, log_scale_dt = parameters
+        # Hardcode a min_std clamp of 1e-4 (log(1e-4) approx -9.21) to prevent NaN collapse
+        log_scale = log_scale.clamp(min=-9.21034)
+        return mean, mean_dt, log_scale, log_scale_dt
 
     @staticmethod
     def _component_log_prob(

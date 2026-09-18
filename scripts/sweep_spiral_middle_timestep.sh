@@ -7,7 +7,7 @@ set -euo pipefail
 # smoke test before launching the full sweep.
 DATASET="spiral"
 TEACHER_CKPT="checkpoints/spiral_alicfm_teacher.pt"
-STEPS="${STEPS:-10000}"
+STEPS="${STEPS:-40000}"
 
 mkdir -p logs
 

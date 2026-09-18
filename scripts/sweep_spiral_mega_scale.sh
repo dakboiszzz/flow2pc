@@ -4,7 +4,7 @@ set -e
 # Base configurations
 DATASET="spiral"
 TEACHER_CKPT="checkpoints/spiral_alicfm_teacher.pt"
-STEPS=10000
+STEPS=160000
 
 # Ensure the log directory exists
 mkdir -p logs
