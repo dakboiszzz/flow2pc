@@ -87,7 +87,7 @@ def generate_knot_distribution(
 
     # \mu_Y(t)
     mu_y1 = -0.5 * np.tanh(5.0 * (t1 + 1.0)) + 0.5
-    mu_y2 = np.sin(2.0 * np.pi * (t2 - 0.75))
+    mu_y2 = np.sin(2.0 * np.pi * (t2 - 0.75)) + 1
     mu_y3 = 0.5 * np.tanh(5.0 * (t3 - 1.0)) + 0.5
     mu_y = np.concatenate([mu_y1, mu_y2, mu_y3])
 
