@@ -79,6 +79,8 @@ for num_latents in "${NUM_LATENTS_LIST[@]}"; do
         --time-order "${TIME_ORDER}" \
         --time-conditioning fourier \
         --time-embedding-dim "${time_emb_dim}" \
+        --no-fourier-zero-center \
+        --no-polynomial-zero-center \
         --hclt-leaf-distribution gaussian \
         --hclt-leaf-components 1 \
         --steps "${STEPS}" \

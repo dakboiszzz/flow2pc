@@ -551,6 +551,8 @@ def distillation_loss(
             k_indices=k_indices, K_total=K_total,
         )
         path_sample = generator(x0, x1, times)
+        # Add noise injection for off-manifold regularization
+        path_sample = path_sample + torch.randn_like(path_sample) * 0.05
     else:
         noise = torch.randn_like(data)
         times = sample_distillation_timesteps(

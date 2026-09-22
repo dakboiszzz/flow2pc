@@ -276,6 +276,8 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             log_scale_dt = torch.einsum(
                 "dhp,bp->bdh", self.log_scale_coefficients, derivative
             )
+        # Prevent variance collapse: keep Gaussians smooth so the vector field remains continuous for RK4 integration
+        log_scale = log_scale.clamp(-2.0, 5.0)
         return mean, mean_dt, log_scale, log_scale_dt
 
     def _leaf_component_parameters(self, time: torch.Tensor):
