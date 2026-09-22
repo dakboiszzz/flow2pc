@@ -507,18 +507,18 @@ def sample_distillation_timesteps(
         k_clamped = torch.clamp(k_float, 0, K_total - 2)
         t_lower = k_clamped / (K_total - 1)
         t_upper = (k_clamped + 1.0) / (K_total - 1)
-        return t_lower + torch.rand(count, device=device, dtype=dtype) * (t_upper - t_lower)
-    if sampling in ("uniform", "uniform_global"):
-        return torch.rand(count, device=device, dtype=dtype)
-    if sampling == "beta":
+        times = t_lower + torch.rand(count, device=device, dtype=dtype) * (t_upper - t_lower)
+    elif sampling in ("uniform", "uniform_global"):
+        times = torch.rand(count, device=device, dtype=dtype)
+    elif sampling == "beta":
         concentration1 = torch.tensor(beta_alpha, device=device, dtype=dtype)
         concentration0 = torch.tensor(beta_beta, device=device, dtype=dtype)
-        times = torch.distributions.Beta(concentration1, concentration0).sample(
-            (count,)
-        )
-        epsilon = torch.finfo(dtype).eps
-        return times.clamp(epsilon, 1.0 - epsilon)
-    raise ValueError(f"unknown timestep sampling distribution: {sampling}")
+        times = torch.distributions.Beta(concentration1, concentration0).sample((count,))
+    else:
+        raise ValueError(f"unknown timestep sampling distribution: {sampling}")
+
+    # Clamp times away from exact 0.0 and 1.0 to prevent division by zero / exploding gradients
+    return times.clamp(1e-5, 1.0 - 1e-5)
 
 
 def distillation_loss(
