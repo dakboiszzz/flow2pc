@@ -25,7 +25,7 @@ from torchcfm.conditional_flow_matching import (
 from torchvision.datasets import MNIST
 
 from repc.data import MNIST_DIM, mnist_loader, multimarginal_loader
-from repc.flow import build_teacher, torchcfm_mnist_teacher_config
+from repc.flow import build_teacher, ALICFMGeneratorWrapper, torchcfm_mnist_teacher_config
 from repc.hclt import (
     HCLT_MNIST_CONFIG,
     load_or_learn_hclt_topology,
@@ -40,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("task", choices=("flow", "distill"))
     parser.add_argument("--teacher-checkpoint", type=Path)
+    parser.add_argument("--generator-checkpoint", type=Path)
     parser.add_argument(
         "--pc-structure",
         "--student-model",
@@ -453,10 +454,22 @@ def load_teacher(
         checkpoint = torch.load(path, map_location=device, weights_only=True)
     except Exception:
         checkpoint = torch.load(path, map_location=device, weights_only=False)
-    if isinstance(checkpoint, dict) and checkpoint.get("model_config", {}).get("name") == "alicfm":
-        teacher = build_teacher(checkpoint["model_config"]).to(device)
-        flow_matching_config = checkpoint.get("flow_matching_config", {"name": "vanilla_cfm", "sigma": 0.0})
+
+    _ALICFM_NAMES = ("alicfm", "alicfm_true_gan_teacher", "alicfm_gan")
+    model_config = checkpoint.get("model_config", {}) if isinstance(checkpoint, dict) else {}
+    arch_name = model_config.get("name", "")
+    if arch_name in _ALICFM_NAMES:
+        # All ALI-CFM teacher variants are loaded via ALICFMTeacherWrapper which
+        # already handles the velocity_state_dict key and global time format.
+        # Always normalize the flow_matching_config to vanilla_cfm so that
+        # build_flow_matcher never encounters ALI-CFM-specific names like "alicfm_gan".
+        # When a generator is provided, the flow matcher is only used as a fallback
+        # for straight-line interpolation, so vanilla_cfm is always correct here.
+        from repc.flow import ALICFMTeacherWrapper
+        teacher = ALICFMTeacherWrapper(path, map_to_interval=False).to(device)
+        flow_matching_config = {"name": "vanilla_cfm", "sigma": 0.0}
         return teacher.eval(), flow_matching_config
+
     if checkpoint["model_type"] != "flow":
         raise ValueError(f"{path} is not a flow checkpoint")
     teacher = build_teacher(checkpoint["model_config"]).to(device)
@@ -519,23 +532,35 @@ def distillation_loss(
     return_timesteps: bool = False,
     k_indices: torch.Tensor | None = None,
     K_total: int | None = None,
+    generator: nn.Module | None = None,
+    x0_pool: torch.Tensor | None = None,
+    x1_pool: torch.Tensor | None = None,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
-    noise = torch.randn_like(data)
-    times = sample_distillation_timesteps(
-        data.shape[0],
-        data.device,
-        data.dtype,
-        timestep_sampling,
-        timestep_beta_alpha,
-        timestep_beta_beta,
-        k_indices=k_indices,
-        K_total=K_total,
-    )
-    _, path_sample, _ = flow_matcher.sample_location_and_conditional_flow(
-        noise,
-        data,
-        times,
-    )
+    if generator is not None:
+        assert x0_pool is not None and x1_pool is not None, (
+            "x0_pool and x1_pool must be provided when using a generator"
+        )
+        B = data.shape[0]
+        idx0 = torch.randint(0, x0_pool.shape[0], (B,), device=data.device)
+        idx1 = torch.randint(0, x1_pool.shape[0], (B,), device=data.device)
+        x0 = x0_pool[idx0].to(device=data.device, dtype=data.dtype)
+        x1 = x1_pool[idx1].to(device=data.device, dtype=data.dtype)
+        times = sample_distillation_timesteps(
+            B, data.device, data.dtype,
+            timestep_sampling, timestep_beta_alpha, timestep_beta_beta,
+            k_indices=k_indices, K_total=K_total,
+        )
+        path_sample = generator(x0, x1, times)
+    else:
+        noise = torch.randn_like(data)
+        times = sample_distillation_timesteps(
+            data.shape[0], data.device, data.dtype,
+            timestep_sampling, timestep_beta_alpha, timestep_beta_beta,
+            k_indices=k_indices, K_total=K_total,
+        )
+        _, path_sample, _ = flow_matcher.sample_location_and_conditional_flow(
+            noise, data, times,
+        )
     with torch.no_grad():
         teacher_velocity = teacher(times, path_sample)
     pc_velocity = pc.velocity(path_sample.flatten(1), times)
@@ -845,6 +870,23 @@ def main() -> None:
             device,
             teacher_arch=args.teacher_arch,
         )
+        generator = ALICFMGeneratorWrapper(args.generator_checkpoint).to(device).eval() if args.generator_checkpoint else None
+        # Pre-load endpoint pools for the generator.
+        # The new teacher.pt uses global time (noise -> target), so:
+        #   x0 = Gaussian noise (the source distribution)
+        #   x1 = samples from the final knot marginal (k=K-1)
+        # These are sampled independently — no OT plan needed for this formulation.
+        x0_pool, x1_pool = None, None
+        if generator is not None and args.dataset in ("knot", "ht206b1"):
+            from repc.data import generate_knot_distribution
+            _knot_data = generate_knot_distribution(
+                K=args.num_marginals, samples_per_marginal=500, seed=args.seed
+            )  # [K, 500, 2]
+            # The teacher maps knot[0] → knot[K-1], so the generator must also
+            # receive x0 from the FIRST marginal, not Gaussian noise.
+            x0_pool = _knot_data[0].to(device)    # source = first knot marginal (k=0)
+            x1_pool = _knot_data[-1].to(device)   # target = last knot marginal (k=K-1)
+            print(f"[generator] endpoint pools ready: x0~knot[0], x1~knot[K-1] (500 samples each)")
         if flow_matching_config["name"] in ("vanilla_cfm", "exact_ot_cfm"):
             args.flow_matcher = {
                 "vanilla_cfm": "vanilla",
@@ -966,6 +1008,9 @@ def main() -> None:
             timestep_beta_alpha=args.timestep_beta_alpha,
             timestep_beta_beta=args.timestep_beta_beta,
             return_timesteps=True,
+            generator=generator,
+            x0_pool=x0_pool,
+            x1_pool=x1_pool,
         )
         total_steps = args.steps
         lr = args.lr or 1e-3
@@ -1322,6 +1367,34 @@ def main() -> None:
             model_artifact,
             aliases=["latest", f"seed-{args.seed}"],
         )
+
+        # ---- Post-training trajectory eval (knot distillation only) ----
+        if args.task == "distill" and args.dataset in ("knot",):
+            import subprocess
+            img_path = run_dir / "student_trajectories.png"
+            eval_cmd = [
+                "python", "scripts/plot_knot_student.py",
+                "--dataset", args.dataset,
+                "--model-type", "student",
+                "--checkpoint", str(checkpoint_path),
+                "--output", str(img_path),
+                "--num-trajectories", "100",
+                "--num-steps", "100",
+                "--K", str(args.num_marginals),
+            ]
+            try:
+                subprocess.run(eval_cmd, check=True, cwd=str(Path(__file__).parent))
+                if img_path.exists():
+                    tracking_run.log({
+                        "eval/student_trajectory": wandb.Image(
+                            str(img_path),
+                            caption=args.wandb_run_name or "student trajectory",
+                        )
+                    })
+                    print(f"[eval] Trajectory image logged to wandb.")
+            except Exception as exc:
+                print(f"[eval] WARNING: trajectory eval failed: {exc}")
+
     print(f"run saved to {run_dir.resolve()}")
 
 

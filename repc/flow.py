@@ -56,7 +56,7 @@ class ALICFMTeacherWrapper(nn.Module):
 
             # Check for state dict in common keys
             state_dict = None
-            for key in ("ot_cfm_model", "velocity_net", "model", "net", "state_dict"):
+            for key in ("velocity_state_dict", "ot_cfm_model", "velocity_net", "model", "net", "state_dict"):
                 if key in checkpoint and isinstance(checkpoint[key], dict):
                     state_dict = checkpoint[key]
                     break
@@ -138,6 +138,45 @@ class ALICFMTeacherWrapper(nn.Module):
                 return self.velocity_net(time_input, path_sample)
             except TypeError:
                 return self.velocity_net(path_sample, time_input)
+
+class ALICFMGeneratorWrapper(nn.Module):
+    def __init__(
+        self,
+        checkpoint_path: str | Path | nn.Module,
+    ):
+        super().__init__()
+        path = Path(checkpoint_path)
+        try:
+            checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        except Exception:
+            checkpoint = torch.load(path, map_location="cpu")
+
+        if isinstance(checkpoint, dict):
+            state_dict = None
+            for key in ("generator_state_dict", "state_dict"):
+                if key in checkpoint and isinstance(checkpoint[key], dict):
+                    state_dict = checkpoint[key]
+                    break
+            if state_dict is None:
+                state_dict = checkpoint
+
+            self.mlp = ALICFMTeacherWrapper._build_mlp_from_state_dict(state_dict)
+            self.mlp.load_state_dict(state_dict)
+        else:
+            raise TypeError(f"unexpected checkpoint type for generator: {type(checkpoint)}")
+
+    def forward(self, x0: torch.Tensor, x1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        if t.ndim == 0:
+            t = t.unsqueeze(0).repeat(x0.shape[0])
+        t_col = t[:, None] if t.ndim == 1 else t
+        t_col = t_col.to(device=x0.device, dtype=x0.dtype)
+
+        cat_input = torch.cat([x0, x1, t_col], dim=-1)
+        f = self.mlp(cat_input)
+        
+        # x_t = (1-t)x_0 + t x_1 + t(1-t)f_phi(x_0, x_1, t)
+        x_t = (1.0 - t_col) * x0 + t_col * x1 + t_col * (1.0 - t_col) * f
+        return x_t
 
 
 def build_teacher(config: dict) -> nn.Module:
