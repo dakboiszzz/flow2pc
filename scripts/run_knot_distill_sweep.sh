@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================
 # Knot Distillation Hyperparameter Sweep
-# Trains student models via ALI-CFM generator-based distillation
+# Trains student models on cached ALI-CFM teacher trajectories
 # and logs all losses + trajectory image to W&B.
 # ============================================================
 set -euo pipefail
@@ -16,13 +16,12 @@ export TMPDIR="/mnt/disk2/tmp"
 mkdir -p "${TMPDIR}"
 
 TEACHER_CKPT="checkpoints/teacher.pt"
-GENERATOR_CKPT="checkpoints/generator.pt"
 DATASET="knot"
 WANDB_PROJECT="flow2pc"
-WANDB_GROUP="knot-distill-sweep-generator"
+WANDB_GROUP="knot-distill-sweep-gen"
 
 # ---- Sanity checks ----
-for f in "${TEACHER_CKPT}" "${GENERATOR_CKPT}"; do
+for f in "${TEACHER_CKPT}"; do
   if [[ ! -f "${f}" ]]; then
     echo "ERROR: Required checkpoint not found: ${f}" >&2
     exit 1
@@ -43,30 +42,7 @@ BATCH_SIZE=128
 NUM_MARGINALS=60
 TIME_ORDER=4
 
-# ============================================================
-# Function: generate trajectory image and log it to wandb
-# ============================================================
-log_trajectory_image() {
-  local run_name="$1"
-  local student_ckpt="$2"
-  local img_path="outputs/sweep_trajectories/${run_name}.png"
-
-  mkdir -p outputs/sweep_trajectories
-
-  "${python_bin}" scripts/plot_knot_student.py \
-    --dataset knot \
-    --model-type student \
-    --checkpoint "${student_ckpt}" \
-    --output "${img_path}" \
-    --num-trajectories 100 \
-    --num-steps 100 \
-    --K "${NUM_MARGINALS}" \
-    --wandb-project "${WANDB_PROJECT}" \
-    --wandb-run-name "${run_name}" \
-    --wandb-group "${WANDB_GROUP}"
-
-  echo "  [eval] Image + metrics logged to wandb for '${run_name}'"
-}
+# Plotting is handled internally by train.py at the end of training.
 
 # ============================================================
 # Main sweep loop
@@ -95,7 +71,7 @@ for num_latents in "${NUM_LATENTS_LIST[@]}"; do
       "${python_bin}" train.py distill \
         --dataset "${DATASET}" \
         --teacher-checkpoint "${TEACHER_CKPT}" \
-        --generator-checkpoint "${GENERATOR_CKPT}" \
+        --generator-checkpoint checkpoints/generator.pt \
         --pc-structure hclt \
         --pc-layer dense \
         --num-latents "${num_latents}" \
@@ -122,12 +98,7 @@ for num_latents in "${NUM_LATENTS_LIST[@]}"; do
         --wandb-tags "knot,distill,generator,sweep" \
         --wandb-mode online
 
-      student_ckpt="${run_dir}/checkpoints/last.pt"
-      if [[ -f "${student_ckpt}" ]]; then
-        log_trajectory_image "${run_name}" "${student_ckpt}"
-      else
-        echo "  WARNING: student checkpoint not found at ${student_ckpt}, skipping image logging."
-      fi
+
 
       sweep_count=$(( sweep_count + 1 ))
       echo "  Completed run ${sweep_count}: ${run_name}"
