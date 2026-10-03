@@ -46,6 +46,9 @@ def get_trajectory_metrics(run_dir: Path, is_teacher: bool = False) -> tuple[flo
     cmd = [sys.executable, "scripts/plot_knot_student.py", "--model-type", mtype, "--checkpoint", str(ckpt), "--output", str(img_out)]
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error running plot script for {run_dir}: {e}\n{e.stderr}")
+        return None, None
     except Exception as e:
         print(f"Error running plot script for {run_dir}: {e}")
         return None, None

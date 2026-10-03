@@ -63,18 +63,37 @@ class ALICFMTeacherWrapper(nn.Module):
             if state_dict is None:
                 state_dict = checkpoint
 
-            self.velocity_net = self._build_mlp_from_state_dict(state_dict)
+            activation = checkpoint.get("model_config", {}).get(
+                "activation", "selu"
+            )
+            self.velocity_net = self._build_mlp_from_state_dict(
+                state_dict, activation=activation
+            )
             self.velocity_net.load_state_dict(state_dict)
         else:
             raise TypeError(f"unexpected checkpoint type: {type(checkpoint)}")
 
     @staticmethod
-    def _build_mlp_from_state_dict(state_dict: dict) -> nn.Module:
+    def _build_mlp_from_state_dict(
+        state_dict: dict,
+        activation: str = "selu",
+    ) -> nn.Module:
         """Reconstruct MLP architecture from state dict layer weights."""
         weight_keys = [k for k in state_dict if k.endswith(".weight")]
         weight_keys.sort()
         if not weight_keys:
             raise ValueError("could not find weight keys in state dict")
+
+        activation_layers = {
+            "elu": nn.ELU,
+            "selu": nn.SELU,
+            "relu": nn.ReLU,
+            "gelu": nn.GELU,
+            "tanh": nn.Tanh,
+        }
+        if activation not in activation_layers:
+            raise ValueError(f"unsupported checkpoint activation: {activation}")
+        activation_layer = activation_layers[activation]
 
         layers = []
         for i, key in enumerate(weight_keys):
@@ -83,7 +102,7 @@ class ALICFMTeacherWrapper(nn.Module):
             linear = nn.Linear(in_features, out_features)
             layers.append(linear)
             if i < len(weight_keys) - 1:
-                layers.append(nn.SELU())
+                layers.append(activation_layer())
 
         # If original state dict had 'net.' prefix, wrap in a module that has 'net' attribute
         has_net_prefix = any(k.startswith("net.") for k in state_dict)
@@ -160,7 +179,12 @@ class ALICFMGeneratorWrapper(nn.Module):
             if state_dict is None:
                 state_dict = checkpoint
 
-            self.mlp = ALICFMTeacherWrapper._build_mlp_from_state_dict(state_dict)
+            activation = checkpoint.get("model_config", {}).get(
+                "activation", "selu"
+            )
+            self.mlp = ALICFMTeacherWrapper._build_mlp_from_state_dict(
+                state_dict, activation=activation
+            )
             self.mlp.load_state_dict(state_dict)
         else:
             raise TypeError(f"unexpected checkpoint type for generator: {type(checkpoint)}")
@@ -193,4 +217,3 @@ def build_teacher(config: dict) -> nn.Module:
         num_channels=config["num_channels"],
         num_res_blocks=config["num_res_blocks"],
     )
-

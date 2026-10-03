@@ -9,6 +9,7 @@ description = "Distill a flow-matching model into a time-indexed probabilistic c
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "matplotlib>=3.8",
   "networkx>=3.2",
   "pyjuice==2.2.0",
   "scipy>=1.15",
