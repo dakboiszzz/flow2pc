@@ -179,6 +179,21 @@ class ALICFMGeneratorWrapper(nn.Module):
             if state_dict is None:
                 state_dict = checkpoint
 
+            # Standalone ALI-CFM ST generators store the MLP under
+            # ``interpolant_net.*``.  The generic Flow2PC wrapper uses a plain
+            # sequential MLP, so remove that serialization prefix before
+            # reconstructing it.  (Knot checkpoints use unprefixed or
+            # ``net.*`` state dictionaries and remain supported.)
+            prefixes = ("interpolant_net.", "net.")
+            for prefix in prefixes:
+                if state_dict and all(
+                    key.startswith(prefix) for key in state_dict
+                ):
+                    state_dict = {
+                        key[len(prefix):]: value for key, value in state_dict.items()
+                    }
+                    break
+
             activation = checkpoint.get("model_config", {}).get(
                 "activation", "selu"
             )

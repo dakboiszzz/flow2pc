@@ -105,13 +105,18 @@ class MultiMarginalDataset(Dataset):
     Flattened across marginals while retaining the temporal k_index (0 to K-1).
     """
 
-    def __init__(self, data: torch.Tensor):
+    def __init__(self, data: torch.Tensor, marginal_indices: list[int] | None = None):
         if data.ndim != 3:
             raise ValueError(f"expected 3D tensor [K, N, D], got shape {tuple(data.shape)}")
         self.data = data
         self.K = data.shape[0]
         self.N = data.shape[1]
         self.D = data.shape[2]
+        if marginal_indices is None:
+            marginal_indices = list(range(self.K))
+        if len(marginal_indices) != self.K:
+            raise ValueError("marginal_indices must match the first data dimension")
+        self.marginal_indices = tuple(marginal_indices)
 
     def __len__(self) -> int:
         return self.K * self.N
@@ -119,7 +124,58 @@ class MultiMarginalDataset(Dataset):
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         k_index = index // self.N
         n_index = index % self.N
-        return self.data[k_index, n_index], torch.tensor(k_index, dtype=torch.long)
+        return self.data[k_index, n_index], torch.tensor(
+            self.marginal_indices[k_index], dtype=torch.long
+        )
+
+
+def load_st_clouds(
+    data_dir: Path | str,
+    normalized: bool = True,
+    slides: tuple[str, ...] = ("U2", "U3", "U4", "U5"),
+) -> list[torch.Tensor]:
+    """Load exported spatial-transcriptomics slide clouds independently."""
+    root = Path(data_dir)
+    suffix = "normalized_float32.csv" if normalized else "raw_float32.csv"
+    clouds = []
+    for slide in slides:
+        path = root / f"{slide}_{suffix}"
+        if not path.is_file():
+            raise FileNotFoundError(f"missing ST marginal: {path}")
+        try:
+            values = np.loadtxt(path, delimiter=",", dtype=np.float32)
+        except ValueError:
+            values = np.loadtxt(path, delimiter=",", skiprows=1, dtype=np.float32)
+        if values.ndim == 1:
+            values = values[None, :]
+        if values.shape[1] < 2:
+            raise ValueError(f"ST marginal {path} must contain two coordinates")
+        clouds.append(torch.from_numpy(values[:, -2:].copy()))
+    return clouds
+
+
+def load_st_marginals(
+    data_dir: Path | str,
+    normalized: bool = True,
+    slides: tuple[str, ...] = ("U2", "U3", "U4", "U5"),
+) -> torch.Tensor:
+    """Load ST clouds into a rectangular multi-marginal tensor.
+
+    The ST export contains one CSV per slide with two coordinate columns and
+    different numbers of spots.  A multi-marginal loader needs a rectangular
+    tensor, so we retain the same number of points per marginal by sampling
+    with replacement to the largest slide size.  The sampling is deterministic
+    when ``seed`` is supplied to :func:`multimarginal_loader`.
+    """
+    clouds = load_st_clouds(data_dir, normalized=normalized, slides=slides)
+    target_size = max(cloud.shape[0] for cloud in clouds)
+    return torch.stack(
+        [
+            cloud[torch.arange(target_size) % cloud.shape[0]]
+            for cloud in clouds
+        ],
+        dim=0,
+    )
 
 
 def multimarginal_loader(
@@ -131,6 +187,7 @@ def multimarginal_loader(
     num_workers: int = 0,
     data_dir: Path | str = "data",
     seed: int | None = None,
+    st_held_out_slide: str | None = None,
 ) -> DataLoader:
     """Create a DataLoader for multi-marginal snapshot datasets."""
     dataset_name_lower = dataset_name.lower()
@@ -140,6 +197,14 @@ def multimarginal_loader(
             samples_per_marginal=samples_per_marginal,
             seed=seed,
         )
+    elif dataset_name_lower == "st":
+        all_slides = ("U2", "U3", "U4", "U5")
+        data = load_st_marginals(data_dir, normalized=True, slides=all_slides)
+        if st_held_out_slide is not None:
+            if st_held_out_slide not in all_slides:
+                raise ValueError(f"unknown ST held-out slide: {st_held_out_slide}")
+            keep = [i for i, slide in enumerate(all_slides) if slide != st_held_out_slide]
+            data = data[keep]
     elif dataset_name_lower == "ht206b1":
         data_path = Path(data_dir)
         candidates = [
@@ -174,7 +239,10 @@ def multimarginal_loader(
     else:
         raise ValueError(f"unknown multi-marginal dataset: {dataset_name}")
 
-    dataset = MultiMarginalDataset(data)
+    marginal_indices = None
+    if dataset_name_lower == "st" and st_held_out_slide is not None:
+        marginal_indices = keep
+    dataset = MultiMarginalDataset(data, marginal_indices=marginal_indices)
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -182,4 +250,3 @@ def multimarginal_loader(
         num_workers=num_workers,
         drop_last=shuffle,
     )
-

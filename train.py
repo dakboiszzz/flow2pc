@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--dataset",
-        choices=("mnist", "knot", "ht206b1"),
+        choices=("mnist", "knot", "ht206b1", "st"),
         default="mnist",
         help="dataset for training or distillation",
     )
@@ -90,6 +90,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=60,
         help="number of temporal marginal snapshots for multi-marginal datasets",
+    )
+    parser.add_argument(
+        "--st-held-out-slide",
+        choices=("U2", "U3", "U4", "U5"),
+        help="exclude this ST slide from the distillation marginal loader",
     )
     parser.add_argument(
         "--fourier-zero-center",
@@ -196,6 +201,12 @@ def parse_args() -> argparse.Namespace:
         help="distribution used to sample distillation timesteps",
     )
     parser.add_argument(
+        "--marginal-nll-weight",
+        type=float,
+        default=0.0,
+        help="optional observed-marginal NLL anchor added to velocity distillation",
+    )
+    parser.add_argument(
         "--timestep-beta-alpha",
         type=float,
         default=1.0,
@@ -278,6 +289,14 @@ def parse_args() -> argparse.Namespace:
         }[args.legacy_student]
     if args.task == "distill" and args.teacher_checkpoint is None:
         parser.error("--teacher-checkpoint is required for distillation")
+    if args.dataset == "st":
+        # ST has four observed slides; override the multi-marginal default
+        # (which is 60 for the knot benchmark).
+        args.num_marginals = 4
+        if args.teacher_arch != "alicfm":
+            parser.error("--dataset st requires --teacher-arch alicfm")
+        if args.st_held_out_slide is None:
+            parser.error("--dataset st requires --st-held-out-slide")
     if args.task == "flow":
         if args.steps is not None and args.epochs is not None:
             parser.error("use either --epochs or --steps for flow training, not both")
@@ -332,6 +351,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("learning rate must be positive")
     if args.weight_decay is not None and args.weight_decay < 0:
         parser.error("weight decay must be non-negative")
+    if args.marginal_nll_weight < 0:
+        parser.error("marginal NLL weight must be non-negative")
     if args.gradient_clip <= 0:
         parser.error("gradient clipping threshold must be positive")
     if args.endpoint_em_pseudocount < 0:
@@ -455,7 +476,12 @@ def load_teacher(
     except Exception:
         checkpoint = torch.load(path, map_location=device, weights_only=False)
 
-    _ALICFM_NAMES = ("alicfm", "alicfm_true_gan_teacher", "alicfm_gan")
+    _ALICFM_NAMES = (
+        "alicfm",
+        "alicfm_true_gan_teacher",
+        "alicfm_gan",
+        "ali_cfm_st_teacher",
+    )
     model_config = checkpoint.get("model_config", {}) if isinstance(checkpoint, dict) else {}
     arch_name = model_config.get("name", "")
     if arch_name in _ALICFM_NAMES:
@@ -535,6 +561,7 @@ def distillation_loss(
     generator: nn.Module | None = None,
     x0_pool: torch.Tensor | None = None,
     x1_pool: torch.Tensor | None = None,
+    marginal_nll_weight: float = 0.0,
 ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
     if generator is not None:
         assert x0_pool is not None and x1_pool is not None, (
@@ -565,6 +592,12 @@ def distillation_loss(
         teacher_velocity = teacher(times, path_sample)
     pc_velocity = pc.velocity(path_sample.flatten(1), times)
     loss = nn.functional.mse_loss(pc_velocity, teacher_velocity.flatten(1))
+    if marginal_nll_weight:
+        if k_indices is None or K_total is None:
+            raise ValueError("marginal NLL anchoring requires marginal indices")
+        marginal_times = k_indices.to(device=data.device, dtype=data.dtype) / (K_total - 1)
+        marginal_nll = -pc.log_prob(data.flatten(1), marginal_times).mean()
+        loss = loss + marginal_nll_weight * marginal_nll
     if return_timesteps:
         return loss, times.detach()
     return loss
@@ -840,6 +873,7 @@ def main() -> None:
             num_workers=args.num_workers,
             data_dir=args.data_dir,
             seed=args.seed,
+            st_held_out_slide=args.st_held_out_slide,
         )
     validation_loader = None
     if args.dataset == "mnist" and args.task == "distill" and args.validation_size:
@@ -877,16 +911,22 @@ def main() -> None:
         #   x1 = samples from the final knot marginal (k=K-1)
         # These are sampled independently — no OT plan needed for this formulation.
         x0_pool, x1_pool = None, None
-        if generator is not None and args.dataset in ("knot", "ht206b1"):
-            from repc.data import generate_knot_distribution
-            _knot_data = generate_knot_distribution(
-                K=args.num_marginals, samples_per_marginal=500, seed=args.seed
-            )  # [K, 500, 2]
-            # The teacher maps knot[0] → knot[K-1], so the generator must also
-            # receive x0 from the FIRST marginal, not Gaussian noise.
-            x0_pool = _knot_data[0].to(device)    # source = first knot marginal (k=0)
-            x1_pool = _knot_data[-1].to(device)   # target = last knot marginal (k=K-1)
-            print(f"[generator] endpoint pools ready: x0~knot[0], x1~knot[K-1] (500 samples each)")
+        if generator is not None and args.dataset in ("knot", "ht206b1", "st"):
+            if args.dataset == "st":
+                from repc.data import load_st_marginals
+                st_data = load_st_marginals(args.data_dir, normalized=True)
+                x0_pool, x1_pool = st_data[0].to(device), st_data[-1].to(device)
+                print(
+                    f"[generator] ST endpoint pools ready: U2 ({len(x0_pool)}) -> "
+                    f"U5 ({len(x1_pool)})"
+                )
+            else:
+                from repc.data import generate_knot_distribution
+                knot_data = generate_knot_distribution(
+                    K=args.num_marginals, samples_per_marginal=500, seed=args.seed
+                )
+                x0_pool, x1_pool = knot_data[0].to(device), knot_data[-1].to(device)
+                print(f"[generator] endpoint pools ready: first -> last marginal ({len(x0_pool)} samples)")
         if flow_matching_config["name"] in ("vanilla_cfm", "exact_ot_cfm"):
             args.flow_matcher = {
                 "vanilla_cfm": "vanilla",
@@ -896,7 +936,7 @@ def main() -> None:
         for parameter in teacher.parameters():
             parameter.requires_grad_(False)
         if args.pc_structure == "gaussian":
-            data_dim = 2 if args.dataset in ("knot", "ht206b1") else MNIST_DIM
+            data_dim = 2 if args.dataset in ("knot", "ht206b1", "st") else MNIST_DIM
             model_config = {
                 "name": "gaussian",
                 "num_components": args.num_components,
@@ -914,7 +954,7 @@ def main() -> None:
                 "polynomial_zero_center": args.polynomial_zero_center,
             }
         elif args.pc_structure == "hclt":
-            if args.dataset in ("knot", "ht206b1") and args.hclt_topology is None:
+            if args.dataset in ("knot", "ht206b1", "st") and args.hclt_topology is None:
                 parents = [-1, 0]
                 resolved_topology_config = {"topology": "2d_chain"}
                 topology_path = run_dir / "topology_2d.pt"
@@ -1011,6 +1051,7 @@ def main() -> None:
             generator=generator,
             x0_pool=x0_pool,
             x1_pool=x1_pool,
+            marginal_nll_weight=args.marginal_nll_weight,
         )
         total_steps = args.steps
         lr = args.lr or 1e-3
@@ -1095,6 +1136,7 @@ def main() -> None:
         mode=args.wandb_mode,
         dir=str(run_dir),
     ) as tracking_run:
+        (run_dir / "wandb_run_id.txt").write_text(tracking_run.id + "\n")
         tracking_run.define_metric("train/step")
         tracking_run.define_metric("train/*", step_metric="train/step")
         tracking_run.define_metric("train/loss", summary="min")

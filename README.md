@@ -180,8 +180,39 @@ python train.py distill \
   --gradient-clip 1.0 \
   --wandb-run-name hclt-dense-h64-vanilla-noem-step20000-seed0 \
   --wandb-tags baseline,hclt,standard-powers2,no-endpoint-em \
-  --output-dir outputs/runs/distill/hclt-dense-h64-vanilla-noem-step20000-seed0
+    --output-dir outputs/runs/distill/hclt-dense-h64-vanilla-noem-step20000-seed0
 ```
+
+For the selected spatial-transcriptomics ALI-CFM folds, run both U3-held-out
+(`t=1`, seed 45) and U4-held-out (`t=2`, seed 42) distillations with:
+
+```bash
+bash scripts/run_st_distill.sh
+```
+
+The launcher reads the normalized U2--U5 clouds and the bundled global-time
+teacher/generator checkpoints from `outputs/ST`, excludes the fold's held-out
+slide from the student minibatches, and writes Flow2PC checkpoints under
+`outputs/runs/ST/`. `ST_STEPS`, `ST_NUM_LATENTS`, `ST_LR`, and `FLOW2PC_GPU`
+can override its defaults. After each fold, it samples the student at all four
+slide times, writes a three-panel overlay on the clean H&E TIFFs from
+`outputs/ST/he_visualization_package/images/he_stains/`, and logs held-out EMD,
+moment errors, endpoint NLL, and the figure to the same W&B run. The renderer
+uses the package's Plotter convention: raw coordinate column 1 is horizontal
+and column 0 is vertical.
+The ST launcher also adds a `0.1` observed-marginal NLL anchor by default;
+override it with `ST_MARGINAL_NLL_WEIGHT=...` if running a pure velocity-only
+ablation. The evaluation reports relative velocity MSE in addition to raw MSE.
+
+For the full intensive grid over both folds, use:
+
+```bash
+bash scripts/run_st_distill_intensive_sweep.sh
+```
+
+This runs 640 configurations total: 5 latent widths, 4 learning rates, 4
+Fourier dimensions, 4 marginal-NLL weights, and 2 held-out folds. Use
+`ST_LIMIT_RUNS` for a bounded pilot.
 
 Architecture and endpoint coupling are independent command options. For
 example, the same HCLT student can use an OT teacher checkpoint, and the
