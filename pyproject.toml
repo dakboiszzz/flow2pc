@@ -22,6 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff>=0.11"]
+single-cell = ["h5py>=3.10", "POT>=0.9"]
 
 [tool.setuptools.packages.find]
 include = ["repc*"]

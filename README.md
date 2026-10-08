@@ -111,6 +111,272 @@ selects either the notebook's vanilla `ConditionalFlowMatcher` or
 
 ## Usage
 
+### CITE-5D single-cell distillation
+
+The single-cell workflow uses the existing ALI-CFM checkpoint and H5AD data
+in place. It imports no code from the neighboring repository and writes only
+inside Flow2PC. The default teacher is the combined day-3-held-out, seed-42
+checkpoint under
+`../ali-cfm/runs/single_cell/cite_5D/wandb/run-20261003_030825-rrcutrtl/files/checkpoints/t=1_seed=42_ali_cfm.pth`.
+The data directory is `../ali-cfm/data/single_cell`.
+
+Install the optional reader/metric dependencies in your environment:
+
+```bash
+python -m pip install -e ".[single-cell]"
+```
+
+For the six newly exported best teachers (CITE/Multi at 5D/50D/100D), use
+the shared multi-GPU launcher below. It reads the bundle index and selects
+only **t=1**, prepares a fresh Flow2PC teacher reference per dataset, and
+interleaves all six student sweeps across the visible GPUs:
+
+```bash
+# Preview the six teachers, GPU pool, run counts, and W&B names; starts no jobs.
+bash scripts/run_single_cell_all_sweeps.sh --dry-run
+
+# Launch all six sweeps when ready. Use all visible GPUs, two workers per GPU.
+bash scripts/run_single_cell_all_sweeps.sh
+
+# Optionally restrict the logical GPU pool or increase concurrency.
+bash scripts/run_single_cell_all_sweeps.sh \
+  --devices cuda:0,cuda:1,cuda:2,cuda:3 --workers-per-gpu 3
+```
+
+The wrapper uses `/data/nvidia/conda_envs/uffm/bin/python` unless
+`FLOW2PC_PYTHON` is set. It reads
+`/data/lthung/ali-cfm/best_models/single_cell` and the existing H5ADs in
+`/data/lthung/single_cell`. It preserves each bundle's saved architecture,
+global time, min/max normalization, and effective float32 5D whitening
+constants. Teacher retraining regularizers are already embodied in the
+frozen weights; they are not student loss terms.
+
+The neutral `configs/single_cell/intensive_sweep.json` retains the existing
+288-configuration grid: 32/64/128/256 latents, 16/32/64 time features,
+four learning rates, batch sizes 64/128, three student seeds, and 50,000
+steps. Six sweeps therefore contain **1,728 student runs**. Override
+`--grid` or `--steps` before the first launch if desired. W&B names begin
+with the dataset and dimension, such as `cite5d-h128-f32-lr0.001-b64-s0-...`;
+groups also include fold and teacher seed. Existing W&B runs retain their
+saved names on resume.
+
+Outputs default to
+`/data/lthung/flow2pc/outputs/single_cell/best_ali_cfm_sweeps_t1`, with
+`reference/<dataset>-t1-teacher<seed>/metrics.json`,
+`sweeps/<dataset>-t1-teacher<seed>/runs/`, per-sweep summaries and selections,
+and `all_sweeps_status.json`. The default evaluation protocol uses 2,048
+cells, seed 2026, batch size 256, and Dopri5 tolerance 1e-5 for both teacher
+and student. Original ALI selection EMD values are not reused as references.
+
+The scheduler requires at least two visible CUDA devices and has no CPU
+fallback. It checks free memory before launching each worker (8 GiB by
+default, adjustable with `--min-free-gb`), reserves space during worker
+startup, and fills slots fairly across datasets. Increasing
+`--workers-per-gpu` allows independent student processes to share a GPU;
+actual utilization depends on available memory and other GPU jobs. GPU
+allocation failures get one bounded retry by default. Rerunning the same
+command skips completed students and resumes interrupted ones from saved
+checkpoints. Ctrl-C or SIGTERM stops the launcher and its worker process
+groups while preserving checkpoints. Change the output root when changing
+teachers or evaluation protocol.
+
+For a single older teacher, the workflow has two separate commands: evaluate the teacher first, then
+launch student configurations across your GPUs. The sweep never evaluates
+the teacher implicitly. Set the Python environment and authenticate W&B once:
+
+```bash
+export FLOW2PC_PYTHON=/home/nvidia/anaconda3/envs/uffm/bin/python
+export WANDB_HTTP_TIMEOUT=120
+export WANDB__SERVICE_WAIT=300
+# Authenticate only if this machine does not already have saved credentials.
+"$FLOW2PC_PYTHON" -m wandb login
+# Optional: export WANDB_ENTITY=your-team
+
+# 1. Evaluate the default CITE-5D teacher on one GPU and log its EMD.
+"$FLOW2PC_PYTHON" scripts/evaluate_single_cell.py \
+  --device cuda:0 \
+  --output-dir outputs/reference/cite_5D/day3_seed42-wandb \
+  --wandb-mode online
+```
+
+The evaluator saves EMD and projected marginal plots at all four times. Its
+default protocol uses reproducible subsets of 2,048 cells, starts from day 2,
+and integrates with Dopri5 at `rtol=atol=1e-5`. Use `--num-samples 0` for the
+full populations; those scores are a different evaluation protocol and need
+their own matching reference. The measured 2,048-cell teacher reference has
+day-3 EMD **1.03575896**. This is a measured checkpoint reference, not the
+paper's five-seed aggregate. If the output directory already contains a
+matching reference, the evaluator reuses and logs it without recomputing or
+overwriting `metrics.json`. This preserves the reference hash used by
+student checkpoints. A different protocol requires a new output directory.
+
+Run multiple student configurations concurrently:
+
+```bash
+# 2. Run the intensive sweep: 288 jobs, four running concurrently.
+bash scripts/run_single_cell_sweep.sh \
+  --grid configs/single_cell/cite5d_intensive_sweep.json \
+  --reference outputs/reference/cite_5D/day3_seed42-wandb/metrics.json \
+  --devices cuda:0,cuda:1,cuda:2,cuda:3 --max-parallel 4 \
+  --wandb-mode online \
+  --output-dir outputs/single_cell/cite5d-intensive
+
+# Inspect the jobs without evaluating or training:
+bash scripts/run_single_cell_sweep.sh \
+  --grid configs/single_cell/cite5d_intensive_sweep.json \
+  --reference outputs/reference/cite_5D/day3_seed42-wandb/metrics.json \
+  --devices cuda:0,cuda:1,cuda:2,cuda:3 --max-parallel 4 --dry-run
+```
+
+For two GPUs use `--devices cuda:0,cuda:1 --max-parallel 2`; remaining
+configurations queue until a worker finishes. These are independent runs
+with one full student per GPU, following the ALI-CFM sweep's
+`multi_gpu=false` pattern. `CUDA_VISIBLE_DEVICES` is respected: indices are
+relative to your visible allocation. For example, with
+`CUDA_VISIBLE_DEVICES=4,6`, request `cuda:0,cuda:1`.
+
+`--devices auto` (the default) uses visible GPUs with at least 8 GiB free,
+or falls back to CPU workers (`--devices cpu,cpu` selects CPUs explicitly).
+`--threads` controls CPU threads per worker. The supplied reference is
+validated against the teacher and data; final student evaluation inherits
+its sample count, seed, solver tolerances, and batch size. Training and
+final evaluation use the worker's assigned GPU; exact EMD runs on CPU
+float64 arrays to avoid mixing GPU tensors with the OT solver.
+
+Each configuration has its own log, checkpoints, and W&B ID. The launcher
+resumes partially trained runs, skips completed and evaluated runs,
+continues other jobs if one fails, and returns a failure status if any job
+failed. Ctrl+C stops worker process groups. A directory lock prevents
+two launchers from writing the same runs concurrently; input hashes
+prevent a sweep directory from being reused with a different reference.
+Use `--output-dir` for an independent experiment. W&B service startup and
+initialization timeouts default to 300 seconds, following the ALI-CFM
+startup fix; override with `--wandb-service-wait`.
+W&B startup requests are serialized across workers, while training remains
+concurrent. Fresh runs skip resume lookup; existing runs keep their saved ID.
+Transient communication failures retry up to three initialization attempts
+with backoff. Supported SDKs also get a separate 60-second GraphQL request
+timeout and three GraphQL retries. Credential-verification RPCs get a
+separate 120-second timeout. W&B sometimes wraps service-busy and network
+timeouts as `AuthenticationError`; those are retried with a fresh worker
+service. Rejected credentials and permission failures fail immediately;
+logging stays online in `flow2pc` rather than silently switching modes.
+
+The default grid is `configs/single_cell/cite5d_intensive_sweep.json`.
+It expands every combination of these parameters:
+
+| Parameter | Values |
+| --- | --- |
+| HCLT latent states | 32, 64, 128, 256 |
+| Fourier embedding dimension | 16, 32, 64 |
+| Learning rate | 1e-4, 3e-4, 5e-4, 1e-3 |
+| Minibatch size | 64, 128 |
+| Training seed | 0, 1, 2 |
+
+This is **96 hyperparameter combinations, each repeated with three seeds:
+288 runs**. Each run has 50,000 velocity-MSE distillation steps,
+validation every 1,000 steps, and direct EMD
+every 5,000 steps on 512 fixed cells. Final direct and ODE EMD inherit the
+separate teacher reference's protocol. The full sweep has 14.4 million
+distillation updates; four GPUs execute four jobs at a time,
+equivalent to 72 groups of four jobs. Runtime depends on capacity, batch size,
+GPU speed, and evaluation time. The queue varies all four capacities before
+moving to another embedding dimension, learning rate, or batch size.
+
+The original four-run grid remains available with
+`--grid configs/single_cell/cite5d_sweep.json`. It uses 20,000 distillation
+steps and is useful for a smaller experiment. Both formats are supported:
+`common` plus an explicit `runs` list, or `common` plus a `parameters` object
+whose lists form a Cartesian product. Edit the JSON or pass `--grid another.json`.
+CLI overrides take precedence; duplicate configurations caused by an override
+collapsing an axis are queued only once. Run names include the swept values
+and a configuration fingerprint. Each training seed is a separate W&B run.
+The intensive group's name is `cite5d-intensive` in project `flow2pc`.
+
+For a bounded pipeline check, create a separate 128-cell teacher reference
+first so the final evaluations use the same protocol:
+
+```bash
+"$FLOW2PC_PYTHON" scripts/evaluate_single_cell.py \
+  --device cpu --num-samples 128 --wandb-mode disabled \
+  --output-dir outputs/reference/cite_5D/smoke-128
+bash scripts/run_single_cell_sweep.sh \
+  --grid configs/single_cell/cite5d_sweep.json \
+  --reference outputs/reference/cite_5D/smoke-128/metrics.json \
+  --devices cpu,cpu --steps 30 --emd-every 0 \
+  --wandb-mode disabled --output-dir outputs/single_cell/cite5d-smoke
+```
+
+The combined checkpoint supplies both networks: an ELU interpolant and a
+SELU velocity teacher evaluated in global time. Inputs use the first five
+released PCA columns, the saved StandardScaler parameters, and saved min/max
+normalization; the loader validates source and manifest SHA-256 hashes.
+Days `[2,3,4,7]` remain at pseudo-times `[0,1/3,2/3,1]`. Metric coordinates
+reverse min/max scaling while retaining the standardization used by the
+original 5D evaluator. Teacher preprocessing was fitted on all days,
+including the held-out day; the saved metadata retains that convention.
+
+Students have a free initial marginal, a Chow--Liu topology learned only from
+observed training cells, and frozen teacher/generator targets. Equal-weight
+exact minibatch OT couples the endpoints through an observed intermediate
+population. Continuous times are uniform globally. The distillation objective
+is **velocity MSE only**. Observed-marginal NLL is logged as a diagnostic and
+does not contribute gradients or checkpoint selection. Training starts with
+velocity MSE at step 1. Initial Gaussian means and scales are set directly
+from observed day-2 training cells without optimizer updates.
+Continuous-density NLL can be negative, whereas
+the distillation MSE is nonnegative. The held-out day is excluded from updates.
+Five percent of each observed population is reserved for student validation.
+The best checkpoint and configuration minimize validation velocity MSE;
+NLL and held-out EMD are never used for selection. Checkpoints record the
+objective and reject resuming an earlier NLL-regularized training run.
+
+Outputs under your sweep directory include one training log per job,
+`runs/<config>/checkpoints/{best,last}.pt`, `metrics.csv`, `emd.csv`,
+`monitor/step_*.json`, per-run `eval/metrics.json`, marginal plots,
+`sweep_manifest.json` (expanded job settings), `summary.csv` (including
+capacity, embedding dimension, learning rate, batch size, seed, and W&B links), and
+`selected_student.json`. Student evaluation reports direct ancestral samples
+separately from ODE predictions starting at the same empirical day-2 cells
+as the teacher.
+
+W&B defaults to **online** logging in project `flow2pc`. The intensive grid
+uses group `cite5d-intensive`; the four-run grid uses `cite5d-distillation`.
+The teacher has its own run. Each student's final
+evaluator resumes the same online W&B ID as its trainer, so its losses,
+EMD curves, and final scores appear together. W&B receives:
+
+- Distillation loss, velocity MSE, observed NLL, gradient norm,
+  learning rate, elapsed time, and validation scores.
+- Teacher EMD for every day under `teacher/day_<day>/ode_emd`, plus
+  `teacher/heldout_ode_emd`. The baseline is also recorded in every student
+  run under `reference/*`.
+- Direct-sampling EMD and NLL for every day every 5,000 steps, with
+  `monitor/heldout_direct_emd` as the held-out curve. This uses 512 fixed
+  cells by default; change `--emd-every` and `--emd-samples`, or set
+  `--emd-every 0` to disable monitoring. Monitoring never affects selection.
+- Final `eval/heldout_direct_emd` and `eval/heldout_ode_emd`, per-day EMD
+  and NLL, teacher-relative differences/ratios, ODE evaluations, runtimes,
+  marginal plots, and a CSV table of all populations. Final EMD uses the
+  teacher reference's protocol (2,048 cells by default), separately from
+  the smaller monitoring protocol.
+- Saved configuration, data/checkpoint hashes, model checkpoints, metrics
+  files, and plots as attachments in the run's **Files** tab; H5AD data
+  remains in place.
+
+EMD scalars are published before media. Tables are uploaded as CSV files
+and checkpoints/metrics use `run.save()`: this avoids the extra public-API
+credential verification triggered by W&B 0.30 table/artifact uploads, which
+can fail with "the service process is busy" after a run initializes.
+
+Logging uses [W&B custom step axes](https://docs.wandb.ai/ref/python/experiments/run/)
+for training and final evaluation, so evaluating a best checkpoint
+from an earlier training step does not discard its EMD. Use
+`--wandb-project`, `--wandb-entity`, and `--wandb-group` on both commands
+to choose the destination. `--wandb-mode offline` writes local W&B sessions
+for later syncing (training/evaluation may be separate offline sessions);
+`disabled` keeps only local metrics.
+
 Install with Python 3.11 or newer:
 
 ```bash

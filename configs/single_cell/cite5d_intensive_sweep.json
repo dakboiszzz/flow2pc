@@ -1,0 +1,21 @@
+{
+  "common": {
+    "steps": 50000,
+    "validate_every": 1000,
+    "checkpoint_every": 10000,
+    "log_every": 100,
+    "emd_every": 5000,
+    "emd_samples": 512,
+    "wandb_mode": "online",
+    "wandb_project": "flow2pc",
+    "wandb_group": "cite5d-intensive",
+    "wandb_service_wait": 300
+  },
+  "parameters": {
+    "seed": [0, 1, 2],
+    "batch_size": [64, 128],
+    "lr": [0.0001, 0.0003, 0.0005, 0.001],
+    "time_embedding_dim": [16, 32, 64],
+    "num_latents": [32, 64, 128, 256]
+  }
+}

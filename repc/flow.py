@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import torch
 from torch import nn
 from torchcfm.models.unet import UNetModel
@@ -46,6 +47,8 @@ class ALICFMTeacherWrapper(nn.Module):
             if (
                 checkpoint.get("time_format") == "global"
                 or checkpoint.get("model_config", {}).get("time_format") == "global"
+                or checkpoint.get("data_contract", {}).get("pseudo_time_convention")
+                == "equally_spaced_ordered_marginals_on_[0,1]"
             ):
                 self.map_to_interval = False
             # Check for module in common keys
@@ -80,7 +83,10 @@ class ALICFMTeacherWrapper(nn.Module):
     ) -> nn.Module:
         """Reconstruct MLP architecture from state dict layer weights."""
         weight_keys = [k for k in state_dict if k.endswith(".weight")]
-        weight_keys.sort()
+        weight_keys.sort(
+            key=lambda key: [int(part) if part.isdigit() else part
+                             for part in re.split(r"(\d+)", key)]
+        )
         if not weight_keys:
             raise ValueError("could not find weight keys in state dict")
 
@@ -120,7 +126,7 @@ class ALICFMTeacherWrapper(nn.Module):
     def forward(self, time: torch.Tensor, path_sample: torch.Tensor) -> torch.Tensor:
         """Evaluate velocity field given global time in [0, 1] and path samples."""
         if time.ndim == 0:
-            time = time.unsqueeze(0)
+            time = time.expand(path_sample.shape[0])
         time_col = time[:, None] if time.ndim == 1 else time
         time_col = time_col.to(device=path_sample.device, dtype=path_sample.dtype)
 
@@ -150,6 +156,7 @@ class ALICFMTeacherWrapper(nn.Module):
         else:
             cat_input = torch.cat([flat_sample, time_col], dim=-1)
 
+        time_input = tau if self.map_to_interval else time_col
         try:
             return self.velocity_net(cat_input)
         except TypeError:
@@ -172,7 +179,7 @@ class ALICFMGeneratorWrapper(nn.Module):
 
         if isinstance(checkpoint, dict):
             state_dict = None
-            for key in ("generator_state_dict", "state_dict"):
+            for key in ("generator_state_dict", "interpolant", "state_dict"):
                 if key in checkpoint and isinstance(checkpoint[key], dict):
                     state_dict = checkpoint[key]
                     break
@@ -184,6 +191,7 @@ class ALICFMGeneratorWrapper(nn.Module):
             # sequential MLP, so remove that serialization prefix before
             # reconstructing it.  (Knot checkpoints use unprefixed or
             # ``net.*`` state dictionaries and remain supported.)
+            is_interpolant = any(key.startswith("interpolant_net.") for key in state_dict)
             prefixes = ("interpolant_net.", "net.")
             for prefix in prefixes:
                 if state_dict and all(
@@ -195,7 +203,7 @@ class ALICFMGeneratorWrapper(nn.Module):
                     break
 
             activation = checkpoint.get("model_config", {}).get(
-                "activation", "selu"
+                "activation", "elu" if is_interpolant else "selu"
             )
             self.mlp = ALICFMTeacherWrapper._build_mlp_from_state_dict(
                 state_dict, activation=activation
