@@ -2,12 +2,22 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, Subset, TensorDataset
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
 MNIST_DIM = 28 * 28
 MNIST_SHAPE = (1, 28, 28)
+
+
+def mnist_latent_loader(codes, split, batch_size, num_workers=0, seed=0):
+    """Load exported continuous codes without pixel preprocessing."""
+    item = codes[split]
+    return DataLoader(
+        TensorDataset(item["values"], item["labels"]),
+        batch_size=batch_size, shuffle=split == "train", num_workers=num_workers,
+        generator=torch.Generator().manual_seed(seed), pin_memory=True,
+    )
 
 
 def quantize_mnist(images):

@@ -690,6 +690,285 @@ figures to `<run>/eval/<checkpoint>/`. The checkpoint carries the selected
 matcher configuration through distillation and evaluation, preventing
 accidental mixing of vanilla and OT paths.
 
+## MNIST latent flow distillation with the frozen EQ-VAE
+
+`train_mnist_latent.py` implements the representation contract in
+`../eqvae/LATENT_DISTILLATION.md`. This is ordinary vanilla flow matching:
+`y_t = (1-t) * noise + t * encoded_data`, with `sigma=0`, followed by PC
+velocity distillation against a frozen latent teacher. The frozen EQ-VAE
+checkpoint is `/data/lthung/eqvae/mnist-eqvae-seed0/best.pt`.
+
+Run the complete pipeline when ready:
+
+```bash
+FLOW2PC_GPU=0 bash scripts/run_mnist_latent_distill.sh
+```
+
+Retrain both teacher and student from scratch with the current implementation:
+
+```bash
+FLOW2PC_GPU=0 LATENT_TEACHER_CHECKPOINT= bash scripts/run_mnist_latent_distill.sh
+```
+
+This clears any inherited `LATENT_TEACHER_CHECKPOINT`, uses a fresh run directory,
+trains the teacher for 30,000 steps and the student for 20,000 steps, logs decoded
+visualizations only at the end of training, and uses 100-step RK4 for all generations.
+It finishes with the full teacher/student fidelity report. The frozen EQ-VAE,
+verified latent bundle, and fixed evaluator are reused; missing data/evaluator
+artifacts are prepared by the pipeline. Existing runs are preserved. The usual
+`LATENT_TEACHER_STEPS`, `LATENT_STUDENT_STEPS`, capacity, and Python environment
+overrides still apply; `LATENT_RUN_DIR` selects a fresh external run
+directory.
+
+The latent pipeline also supports the newer 98-dimensional EQ-VAE checkpoint
+`/data/lthung/eqvae/mnist-eqvae-z98-seed/best.pt`, whose codes have shape
+`[2, 7, 7]`. Encoder output shape, normalization, teacher input/output size,
+student topology, and decoded ODE generation follow the selected bundle.
+Use a separate bundle and train a new teacher for this representation.
+
+Set the shared options in the shell before either stage:
+
+```bash
+export FLOW2PC_PYTHON=/data/nvidia/conda_envs/uffm/bin/python
+export FLOW2PC_GPU=0
+export LATENT_VAE_CHECKPOINT=/data/lthung/eqvae/mnist-eqvae-z98-seed/best.pt
+export LATENT_BUNDLE_DIR=/data/lthung/flow2pc/latents/mnist-eqvae-z98-seed0
+export LATENT_SEED=0 LATENT_IMAGE_EVERY=0 LATENT_ODE_STEPS=100
+```
+
+Train only the new 98D teacher (30,000 steps, width 512, six residual blocks,
+64 time features, LR 0.0005). This mode exports the new codes if missing,
+always trains a fresh teacher, and finishes with validation fidelity metrics:
+
+```bash
+LATENT_RUN_DIR=/data/lthung/flow2pc/outputs/mnist-latent-z98/teacher-seed0 \
+LATENT_TEACHER_STEPS=30000 \
+bash scripts/run_mnist_latent_distill.sh --teacher-only
+```
+
+After that finishes, train only a new student using the settings from
+`mnist-h128-f16-b64-lr0.003-seed0-steps20000`, extending its budget to 50,000
+optimizer steps. The original run used zero weight decay; preserve that here:
+
+```bash
+LATENT_RUN_DIR=/data/lthung/flow2pc/outputs/mnist-latent-z98/mnist-h128-f16-b64-lr0.003-seed0-steps50000 \
+LATENT_RUN_NAME=mnist-z98-h128-f16-b64-lr0.003-seed0-steps50000 \
+LATENT_TEACHER_CHECKPOINT=/data/lthung/flow2pc/outputs/mnist-latent-z98/teacher-seed0/teacher/checkpoints/best.pt \
+LATENT_NUM_LATENTS=128 LATENT_TIME_EMBEDDING_DIM=16 \
+LATENT_PC_STRUCTURE=hclt LATENT_PC_LAYER=dense LATENT_TIME_CONDITIONING=fourier \
+LATENT_STUDENT_BATCH_SIZE=64 LATENT_STUDENT_LR=0.003 \
+LATENT_STUDENT_WEIGHT_DECAY=0 LATENT_STUDENT_GRADIENT_CLIP=1 \
+LATENT_STUDENT_STEPS=50000 \
+bash scripts/run_mnist_latent_distill.sh --student-only
+```
+
+The student stage requires the matching teacher checkpoint and reuses its
+frozen representation. It learns a new 98-variable HCLT, selects its best
+checkpoint by validation velocity MSE, and finishes with a 10,000-sample
+teacher/student test report. Both stages log images only at the end and use
+100-step RK4 generation. All artifacts stay under `/data/lthung/flow2pc`, with
+W&B project `flow2pc`. Existing output directories are preserved; choose fresh
+ones when repeating a stage. Neither mode runs merely by editing the launcher.
+
+For a 98D learning-rate sweep, use
+`configs/mnist_latent/z98_sweep.json`. It contains 192 students with learning
+rates 0.0001, 0.0005, 0.001, and 0.005; batch sizes 64 and 32; HCLT states 128,
+256, 512, and 1024; time feature sizes 16, 32, and 64; and seeds 0 and 1.
+Every student uses 50,000 steps and zero weight decay. Sweep W&B run names
+begin with `mnist` and student names include `z98` and the step budget.
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+FLOW2PC_PYTHON=/data/nvidia/conda_envs/uffm/bin/python \
+bash scripts/run_mnist_latent_distill.sh --sweep \
+  --grid configs/mnist_latent/z98_sweep.json \
+  --vae-checkpoint /data/lthung/eqvae/mnist-eqvae-z98-seed/best.pt \
+  --bundle-dir /data/lthung/flow2pc/latents/mnist-eqvae-z98-seed0 \
+  --teacher-checkpoint /data/lthung/flow2pc/outputs/mnist-latent-z98/teacher-seed0/teacher/checkpoints/best.pt \
+  --max-parallel 8 \
+  --wandb-group mnist-z98-student-sweep \
+  --output-dir /data/lthung/flow2pc/outputs/mnist-latent-z98/sweeps/mnist-z98-h128-1024-steps50000
+```
+
+Run the student sweep with eight GPU workers and one shared frozen teacher:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 \
+FLOW2PC_PYTHON=/data/nvidia/conda_envs/uffm/bin/python \
+bash scripts/run_mnist_latent_distill.sh --sweep \
+  --teacher-checkpoint /data/lthung/flow2pc/outputs/mnist-latent/mnist-latent-seed0-20261008T162037862001468Z/teacher/checkpoints/best.pt \
+  --max-parallel 8 \
+  --output-dir /data/lthung/flow2pc/outputs/mnist-latent/sweeps/full-h128-1024
+```
+
+The grid in `configs/mnist_latent/full_sweep.json` contains 192 students:
+
+| Setting | Values |
+| --- | --- |
+| `num_latents` (HCLT hidden states per variable) | 128, 256, 512, 1024 |
+| `time_embedding_dim` (centered Fourier time features) | 16, 32, 64 |
+| Learning rate | 0.0001, 0.0003, 0.0005, 0.001 |
+| Batch size | 16, 32 |
+| Seed | 0, 1 |
+
+The default EQ-VAE image representation has 196 values (4x7x7); selecting the
+newer checkpoint and its bundle gives 98 values (2x7x7). Neither capacity nor
+time embedding changes its size. The frozen teacher keeps its
+checkpoint architecture, including its 64-dimensional time embedding. All
+students use dense HCLT transitions, a cosine learning-rate schedule, and
+20,000 training steps. `--steps` overrides the training budget for every trial;
+`--grid` selects a different JSON grid.
+
+The coordinator prepares shared data and the fixed classifier once and
+validates the shared teacher before starting workers. Omitting
+`--teacher-checkpoint` trains one shared teacher before the sweep. Each GPU
+gets one subprocess at a time; it trains a student, evaluates its best
+checkpoint on validation data, then immediately takes the next configuration.
+Devices are logical indices within `CUDA_VISIBLE_DEVICES`. The scheduler uses
+an estimated launch budget for each student's parameter size, Adam states,
+velocity gradients, and temporary buffers. In this grid those budgets range
+from 2 GiB for 128/256 states, through 4 GiB for 512 states, to 11--12 GiB for
+1024 states. They are scheduling estimates, not measured peak usage. It scans
+pending configurations for a fit and assigns smaller circuits to GPUs with
+less free memory, leaving roomier GPUs for larger circuits. This avoids making
+every student wait for the largest student's budget. `--min-free-gb 8` overrides
+this policy with a fixed 8 GiB threshold; `--min-free-gb 0` disables the check.
+Actual concurrency still depends on memory occupied by other processes.
+
+There are no intermediate training images (`--image-every 0`). Each training
+run logs one final decoded panel; completed evaluations log their own final
+teacher/student panel. All generations use velocity ODEs with 100 RK4 steps.
+Every student receives a 5,000-sample validation fidelity report against the
+same teacher and classifier. The sweep selects the lowest validation velocity
+MSE and runs a 10,000-sample test comparison for that student. Test metrics do
+not influence selection. Validation/test sample counts are configurable with
+`--eval-samples` and `--test-samples`.
+
+All logs, checkpoints, images, W&B files, and caches are under the external
+`--output-dir`, with project `flow2pc` and a shared sweep group. `summary.csv`
+records settings, status, validation velocity MSE, and teacher/student fidelity
+metrics; `selected_student.json` identifies the selected checkpoint. Rerun the
+same command with the same output directory to skip completed configurations
+and continue pending ones. Add `--retry-failed` to retry failures. Completed
+training resumes at evaluation; interrupted training starts a fresh attempt
+and preserves the old files. A failed configuration does not stop the other
+workers. Changed grid or evaluation settings require a fresh output directory.
+
+Append `--dry-run` to inspect the expanded sweep without starting workers,
+querying CUDA, or creating runtime files. The sweep launches only when invoked.
+
+Use an environment with this project's dependencies plus
+`../eqvae/train_eqvae/requirements-mnist.txt` (including `einops` and Pillow).
+Set `FLOW2PC_PYTHON=/path/to/python` to select that environment. W&B uses the
+current account, project `flow2pc`, group `mnist-latent-distillation`;
+`WANDB_MODE=offline` is also supported.
+
+The launcher exports the original MNIST posterior means as continuous
+coordinates (196 or 98 for the checkpoints above), reusing the EQ-VAE's exact `random_split([55000,5000], seed=0)`
+indices. Per-coordinate mean/std are fitted on training codes only. It trains
+a time-conditioned residual MLP teacher for 30,000 steps, evaluates it on the
+validation split, distills a dense HCLT with 64 hidden states for 20,000 steps,
+then evaluates the selected teacher and student on the official test split.
+Training chooses checkpoints by validation flow MSE (teacher) or validation
+teacher/student velocity MSE (student). Validation also logs continuous latent
+NLL in nats per sample; image bpd is not defined for this representation.
+
+The HCLT learns a fresh topology over all latent coordinates using pairwise Gaussian-copula
+MI on up to 20,000 training codes. Rank-normal scores estimate dependence
+without a fixed pixel range or histogram bandwidth. This Gaussian approximation
+is only used to select the tree; the PC receives the continuous normalized
+codes and uses Gaussian leaves. Polynomial time features and centered Fourier
+features preserve the standard normal source at `t=0`. Dense and Monarch
+transitions, Gaussian-mixture leaves, and a Gaussian-mixture PC control are
+available.
+
+All runtime files stay under `/data/lthung/flow2pc`:
+
+- `data/mnist/`: original MNIST files.
+- `latents/mnist-eqvae-seed0/`: `codes.pt`, `normalizer.pt`, and `manifest.json`.
+- `outputs/mnist-latent/<run>/`: pipeline log, stage logs, CSV/JSON metrics,
+  topology, checkpoints, decoded panels, W&B files, and runtime caches.
+
+Each checkpoint includes normalization tensors, encoder and bundle hashes,
+split identity, architecture, matcher/time convention, and student topology.
+Students also record and verify their exact frozen teacher checkpoint hash.
+Existing latent bundles are reused only after their checksums are verified;
+fresh output directories prevent overwriting training runs. Interrupted runs
+are retained; use a new run directory to restart.
+
+Every image evaluation logs one panel containing real references, frozen VAE
+reconstructions, unconditional decoded teacher samples, and decoded student
+velocity ODE samples at `t=1`. Both models integrate from the same seeded
+standard Gaussian source using 100 fixed RK4 steps (400 velocity evaluations).
+All latent visualizations and image metrics use this ODE sampling path.
+Teacher and student generations are not paired to
+individual reference digits. Final evaluation uses 10,000 samples per model
+and the same RK4 solver, normalizer, decoder, and fixed trained MNIST classifier.
+`LATENT_ODE_STEPS` controls the step count consistently in training panels and
+standalone evaluations; its default is 100.
+Raw decoder outputs are used for reconstruction errors; display and classifier
+inputs use a consistent clamp and range conversion.
+
+Full evaluation reports FID-MNIST, KID-MNIST mean/std, MNIST Inception Score
+mean/std, precision/recall, classifier confidence, digit coverage, class entropy,
+class distribution/JSD, and the fraction of samples with confidence below 0.5.
+These use the existing 128-dimensional MNIST classifier features and its digit
+probabilities; they are domain-specific metrics, not ImageNet Inception-v3
+scores. Real MNIST and VAE reconstruction scores provide reference values.
+
+For each metric, `teacher_student_comparison.csv` and the W&B table
+`eval/teacher_student_comparison` show teacher, student, signed
+student-minus-teacher difference, and whether higher or lower is better.
+`class_distribution.csv` and `eval/class_distribution` compare all ten digits.
+Additional comparisons include student-to-teacher FID/KID, paired image/feature
+errors, predicted-class agreement, and probability JSD from identical Gaussian
+source noise. Paired errors measure preservation of the teacher's behavior;
+they do not compare generated images with paired ground-truth digits.
+Velocity MSE, latent NLL, generation timing/speedup, and parameter counts remain
+in the JSON metrics and W&B scalar logs.
+
+The launcher reuses a trained classifier from `LATENT_CLASSIFIER_CHECKPOINT`,
+the saved evaluator registry, or the standard evaluator locations. If none
+exists, it trains the existing fixed MNIST evaluator for 14 epochs with seed 1
+when you invoke the script, and caches it under
+`/data/lthung/flow2pc/outputs/evaluation/`. Evaluation now fails with a clear
+message if invoked without a trained classifier, instead of skipping fidelity
+metrics. No evaluator is trained or run merely by editing these scripts.
+
+Evaluate an existing student without retraining the teacher or student:
+
+```bash
+FLOW2PC_GPU=0 bash scripts/evaluate_mnist_latent.sh /path/to/student/checkpoints/best.pt
+```
+
+This loads the student's exact recorded teacher checkpoint, generates 10,000
+ODE samples from each model, and saves a fresh report under
+`/data/lthung/flow2pc/outputs/mnist-latent/eval-<timestamp>/`. Set
+`LATENT_EVAL_DIR` to choose a fresh output directory, or
+`LATENT_CLASSIFIER_CHECKPOINT` to supply the fixed evaluator. The script also
+accepts evaluation options such as `--split validation`, `--num-generated`,
+`--is-splits`, `--kid-subsets`, and `--precision-recall-k`.
+
+Common overrides:
+
+```bash
+FLOW2PC_GPU=1 \
+LATENT_TEACHER_STEPS=30000 LATENT_STUDENT_STEPS=20000 \
+LATENT_NUM_LATENTS=64 LATENT_TIME_EMBEDDING_DIM=16 \
+LATENT_CLASSIFIER_CHECKPOINT=/path/to/mnist-classifier/last.pt \
+bash scripts/run_mnist_latent_distill.sh
+```
+
+Set `LATENT_TEACHER_CHECKPOINT=/path/to/latent-teacher/best.pt` to reuse a
+teacher with the same bundle instead of training one. Pixel-space teachers,
+multimarginal interpolants, and EQ-VAE checkpoints cannot serve as this latent
+teacher. `LATENT_PC_LAYER=monarch` requires a square `LATENT_NUM_LATENTS`;
+`LATENT_LEAF_COMPONENTS=4` selects Gaussian-mixture leaves;
+`LATENT_PC_STRUCTURE=gaussian` selects the Gaussian control. Additional command
+arguments are passed to the student stage only. Use the entry point's `export`,
+`flow`, `distill`, and `evaluate` tasks for separate stages; pass `python -B`
+when invoking it directly to keep Python bytecode out of the checkout.
+
 ## Layout
 
 ```text

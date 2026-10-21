@@ -1,8 +1,47 @@
 from pathlib import Path
+import math
 import re
 import torch
 from torch import nn
 from torchcfm.models.unet import UNetModel
+
+
+class LatentFlowTeacher(nn.Module):
+    """Residual vector field for normalized, flattened autoencoder codes."""
+
+    def __init__(self, dim=196, hidden_dim=512, num_blocks=6, time_embedding_dim=64):
+        super().__init__()
+        if dim < 1 or hidden_dim < 1 or num_blocks < 1:
+            raise ValueError("latent teacher dimensions and depth must be positive")
+        if time_embedding_dim < 2 or time_embedding_dim % 2:
+            raise ValueError("time_embedding_dim must be positive and even")
+        self.dim = dim
+        self.register_buffer(
+            "frequencies", torch.exp(torch.linspace(0, math.log(16), time_embedding_dim // 2))
+        )
+        self.input = nn.Linear(dim + time_embedding_dim, hidden_dim)
+        self.blocks = nn.ModuleList([
+            nn.Sequential(nn.LayerNorm(hidden_dim), nn.SiLU(),
+                          nn.Linear(hidden_dim, hidden_dim), nn.SiLU(),
+                          nn.Linear(hidden_dim, hidden_dim))
+            for _ in range(num_blocks)
+        ])
+        self.output = nn.Sequential(nn.LayerNorm(hidden_dim), nn.SiLU(), nn.Linear(hidden_dim, dim))
+        nn.init.zeros_(self.output[-1].weight)
+        nn.init.zeros_(self.output[-1].bias)
+
+    def forward(self, time, values):
+        if values.ndim != 2 or values.shape[1] != self.dim:
+            raise ValueError(f"latent teacher expects [B, {self.dim}] values")
+        time = torch.as_tensor(time, device=values.device, dtype=values.dtype)
+        time = time.expand(len(values)) if time.ndim == 0 else time.reshape(-1)
+        if len(time) != len(values):
+            raise ValueError("one time is required per code")
+        angles = 2 * math.pi * time[:, None] * self.frequencies[None]
+        hidden = self.input(torch.cat((values, angles.sin(), angles.cos()), dim=1))
+        for block in self.blocks:
+            hidden = hidden + block(hidden) / math.sqrt(len(self.blocks))
+        return self.output(hidden)
 
 
 def torchcfm_mnist_teacher_config() -> dict:
@@ -227,6 +266,11 @@ class ALICFMGeneratorWrapper(nn.Module):
 
 
 def build_teacher(config: dict) -> nn.Module:
+    if config.get("name") == "latent_residual_mlp":
+        return LatentFlowTeacher(**{
+            key: config[key]
+            for key in ("dim", "hidden_dim", "num_blocks", "time_embedding_dim")
+        })
     if config.get("name") == "alicfm":
         return ALICFMTeacherWrapper(
             config["checkpoint_path"],
