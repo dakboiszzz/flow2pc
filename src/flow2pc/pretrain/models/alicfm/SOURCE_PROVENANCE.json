@@ -1,0 +1,41 @@
+{
+  "upstream_repository": "https://github.com/mmacosha/adversarially-learned-interpolants",
+  "local_source": "../ali-cfm",
+  "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+  "license_declaration": "MIT, declared in upstream pyproject.toml",
+  "scope": "Core networks, regularization, sampling and training functions from the supplied local checkout. Local source hashes identify modifications beyond the Git revision.",
+  "files": [
+    {
+      "upstream_file": "ali_cfm/nets.py",
+      "upstream_sha256": "4a79dae2386ecc8e3e42401cfdbb86163f6b3f3d54a39b740f3df78c361c1db0",
+      "migrated_file": "nets.py",
+      "migrated_sha256": "4a79dae2386ecc8e3e42401cfdbb86163f6b3f3d54a39b740f3df78c361c1db0",
+      "changes": []
+    },
+    {
+      "upstream_file": "ali_cfm/land_metric.py",
+      "upstream_sha256": "05dfb53911df52130ff9555f91682990f70230aa201755da66d566cc3313b278",
+      "migrated_file": "land_metric.py",
+      "migrated_sha256": "05dfb53911df52130ff9555f91682990f70230aa201755da66d566cc3313b278",
+      "changes": []
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_funcs.py",
+      "upstream_sha256": "f8c59dc8f1e7930e1732abec890a135d2b48ef9ce35674a4d7e12dbbc6d2c33d",
+      "migrated_file": "training_funcs.py",
+      "migrated_sha256": "f47dac457b6df51dc733679e168b3ecafb6907dea6076235327122bef84be8b6",
+      "changes": [
+        "Removed unused import: from ali_cfm.loggin_and_metrics import compute_emd",
+        "Removed unused import: from ali_cfm.data_utils import denormalize",
+        "Added optional logger argument to the three training loops; default is the original wandb logger. Log calls use that argument; algorithm statements are unchanged."
+      ]
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_utils.py",
+      "upstream_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
+      "migrated_file": "training_utils.py",
+      "migrated_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
+      "changes": []
+    }
+  ]
+}
