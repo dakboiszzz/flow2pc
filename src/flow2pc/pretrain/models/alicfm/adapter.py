@@ -7,7 +7,7 @@ import torch
 from torch import nn
 
 from flow2pc.pretrain.base import validate_query
-from flow2pc.pretrain.models.alicfm.model import MLP, TrainableInterpolant
+from flow2pc.pretrain.models.alicfm.profiles import make_models
 from flow2pc.utils.checkpoint import load_teacher_artifact, sha256
 
 
@@ -17,12 +17,63 @@ class FrozenALICFM(nn.Module):
         self.field, self.interpolant = field, interpolant
         self.manifest, self.preprocessing = manifest, preprocessing
         self.dim = manifest["model_config"]["dim"]
+        self.register_buffer(
+            "shift",
+            torch.tensor(
+                preprocessing["shift"], device=next(field.parameters()).device
+            ),
+            persistent=False,
+        )
+        self.register_buffer(
+            "scale",
+            torch.tensor(
+                preprocessing["scale"], device=next(field.parameters()).device
+            ),
+            persistent=False,
+        )
         self.eval().requires_grad_(False)
 
     @torch.no_grad()
     def velocity(self, x, t, *, context=None):
         times = validate_query(x, t, self.dim, next(self.field.parameters()), context)
-        result = self.field(torch.cat([x, times[:, None]], dim=-1))
+        return self._evaluate(x, times)
+
+    @torch.no_grad()
+    def ode_velocity(self, t, x):
+        # Adaptive solvers may evaluate internal stages beyond an endpoint.
+        # Evaluate the same trained field there; do not clip or remap time.
+        times = validate_query(
+            x,
+            t,
+            self.dim,
+            next(self.field.parameters()),
+            None,
+            allow_time_extrapolation=True,
+        )
+        return self._evaluate(x, times)
+
+    def _evaluate(self, x, times):
+        raw = self.manifest["model_config"].get("cfm_coordinates", "model") == "raw"
+        field_x = x * self.scale + self.shift if raw else x
+        config = self.manifest["model_config"]
+        layout = config.get("time_input", "global")
+        columns = [field_x]
+        if layout == "global":
+            columns.append(times[:, None])
+        elif layout in ("local", "local_interval", "local_interval_global"):
+            count = config["num_marginals"] - 1
+            interval = torch.floor(times * count).clamp(0, count - 1)
+            local = times * count - interval
+            columns.append(local[:, None])
+            if layout != "local":
+                columns.append((interval / count)[:, None])
+            if layout == "local_interval_global":
+                columns.append(times[:, None])
+        else:
+            raise ValueError("Unknown saved teacher time-input layout")
+        result = self.field(torch.cat(columns, dim=-1))
+        if raw:
+            result = result / self.scale
         if result.shape != x.shape or not torch.isfinite(result).all():
             raise ValueError("Teacher produced an invalid velocity")
         return result
@@ -50,12 +101,7 @@ def load(checkpoint, device="cpu"):
                 "Teacher source provenance differs from this implementation"
             )
     config = manifest["model_config"]
-    field = MLP(dim=config["dim"], w=config["cfm_dim"], time_varying=True).to(device)
-    interpolant = TrainableInterpolant(
-        dim=config["dim"],
-        h_dim=config["interpolant_dim"],
-        t_smooth=config["t_smooth"],
-    ).to(device)
+    interpolant, _, field = make_models(config, device)
     field.load_state_dict(payload["cfm_model"], strict=True)
     interpolant.load_state_dict(payload["interpolant"], strict=True)
     preprocessing = json.loads(

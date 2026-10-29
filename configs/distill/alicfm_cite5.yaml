@@ -1,0 +1,31 @@
+# Student objective: frozen teacher velocity MSE only.
+stage: distill
+seed: 0
+teacher:
+  checkpoint: /data/lthung/flow2pc/framework/pretrain/alicfm/cite5/fold1-seed42/checkpoints/last.pt
+student:
+  name: hclt
+  params:
+    num_latents: 128
+    time_embedding_dim: 32
+    time_feature_seed: 0
+distillation:
+  sampler:
+    name: teacher_interpolant
+    params: {}
+  device: cuda:0
+  steps: 20000
+  batch_size: 64
+  lr: 0.001
+  validate_every: 1000
+  checkpoint_every: 1000
+  log_every: 100
+  validation_batches: 4
+  validation_batch_size: 128
+  resume: true
+logging:
+  mode: online
+  project: flow2pc
+  name: cite5-hclt-h128-f32-lr0.001-b64-seed0
+output:
+  dir: /data/lthung/flow2pc/framework/distill/alicfm/cite5/hclt-h128-f32-lr0.001-b64-seed0

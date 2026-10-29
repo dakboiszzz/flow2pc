@@ -1,0 +1,43 @@
+{
+  "scope": "Real-data distillation recovery into the organized src layout. This is a refactored integration, not byte-for-byte restoration or a numerical parity claim.",
+  "files": [
+    {
+      "flow2pc_file": "repc/single_cell.py",
+      "source_revision": "f2c6942",
+      "sha256": "dff7676794d34a8877401793c41284cb1b33243d8aa96cba1fe47f912350dc4e",
+      "migrated_to": [
+        "src/flow2pc/distill/student.py",
+        "src/flow2pc/distill/sampling.py"
+      ],
+      "retained": "Histogram-MI topology, free-source Fourier HCLT initialization, MMOT middle-population endpoint matching, frozen velocity MSE."
+    },
+    {
+      "flow2pc_file": "repc/cell_tracking.py",
+      "source_revision": "f2c6942",
+      "sha256": "96930fb3bd002f64989f159442f428f070037c5f3db35b7e0c2378ffc6c558de",
+      "migrated_to": [
+        "src/flow2pc/distill/student.py",
+        "src/flow2pc/distill/sampling.py",
+        "src/flow2pc/distill/validation.py"
+      ],
+      "retained": "Clamp-consistent log-scale derivative, border OT endpoint sampling, late/final teacher-path velocity validation for checkpoint selection."
+    },
+    {
+      "flow2pc_file": "train.py",
+      "source_revision": "f2c6942",
+      "sha256": "a23f2670db76e9a3fa3c8e15b2549f991eea50c612c6fee49256ce24b21ea226",
+      "migrated_to": [
+        "src/flow2pc/distill/sampling.py"
+      ],
+      "retained": "Only ST/knot independent-endpoint learned-generator query semantics and endpoint time clamping; unrelated legacy trainers were not restored."
+    }
+  ],
+  "objective": "mean((student_velocity-frozen_teacher_velocity)**2), for every supported dataset",
+  "changes": [
+    "No marginal NLL branch from the old ST launcher is migrated; user explicitly requires velocity MSE only.",
+    "New teacher artifacts bind train-only scaling, splits, time conventions and source hashes; old checkpoint preprocessing must be supplied/recovered unchanged.",
+    "Unified atomic checkpoints, explicit query sampler metadata, deterministic query generators and optimizer/scheduler/RNG resume state.",
+    "No PC model mathematics rewritten; shared current HCLT remains authoritative."
+  ],
+  "validation": "Static source inspection only. No training, distillation, evaluation or tests executed."
+}

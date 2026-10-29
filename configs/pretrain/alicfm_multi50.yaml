@@ -1,0 +1,50 @@
+# Upstream configs/single_cell/50D/multi-50D.yaml; unused regularizer options are explicit defaults.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    cfm_dim: 1024
+    interpolant_dim: 1024
+    disc_dim: 1024
+    t_smooth: 0.01
+    pretain_ot: mmot
+    interpolant_ot: mmot
+    cfm_ot: mmot
+    correct_coeff: 5.0e-08
+    reg_metric: land
+    land_gamma: 2.0e-06
+    land_t_gamma: 2.0e-06
+    land_epsilon: 1.0e-06
+    reg_term_type: 2nd_derivative
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: R3GAN
+    r3gan_gamma: 1.0
+    profile: single_cell
+data:
+  name: multi
+  root: /data/lthung/ali-cfm-data
+  params:
+    dim: 50
+    heldout_index: 1
+    validation_fraction: 0.05
+    test_fraction: 0.05
+    normalise: true
+    whiten: false
+training:
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 2000
+  pretrain_lr: 0.001
+  num_ali_train_steps: 70000
+  interpolant_gen_lr: 5.0e-05
+  interpolant_disc_lr: 5.0e-05
+  num_cfm_train_steps: 2001
+  cfm_lr: 0.001
+logging:
+  mode: online
+  project: flow2pc
+  name: alicfm-multi50-fold1-seed42
+output:
+  dir: /data/lthung/flow2pc/framework/pretrain/alicfm/multi50/fold1-seed42

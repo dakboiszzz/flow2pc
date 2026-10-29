@@ -488,7 +488,7 @@ def test_cli_validates_without_outputs_and_rejects_unavailable(config, tmp_path)
     assert not Path(config["output"]["dir"]).exists()
 
 
-def test_distill_contract_does_not_silently_train(tmp_path):
+def test_distill_requires_existing_teacher_before_creating_outputs(tmp_path):
     file = tmp_path / "distill.yaml"
     file.write_text(
         yaml.safe_dump(
@@ -497,7 +497,8 @@ def test_distill_contract_does_not_silently_train(tmp_path):
                 "teacher": {"checkpoint": "teacher.pt"},
                 "student": {"name": "hclt"},
                 "distillation": {
-                    "sampler": {"name": "teacher_path"},
+                    "sampler": {"name": "teacher_interpolant"},
+                    "device": "cpu",
                     "steps": 1,
                     "batch_size": 2,
                     "lr": 0.001,
@@ -512,7 +513,7 @@ def test_distill_contract_does_not_silently_train(tmp_path):
         text=True,
         check=False,
     )
-    assert result.returncode == 2 and "separate migration phase" in result.stderr
+    assert result.returncode == 2 and "manifest.json" in result.stderr
     assert not (tmp_path / "result").exists()
     assert load_config(file)["teacher"]["checkpoint"] == str(tmp_path / "teacher.pt")
 
@@ -532,4 +533,22 @@ def test_packaged_source_has_recorded_integrity():
         assert sha256(SOURCE / file["migrated_file"]) == file["migrated_sha256"]
         upstream = UPSTREAM.parent / file["upstream_file"]
         if upstream.exists():
-            assert sha256(upstream) == file["upstream_sha256"]
+            if "upstream_revision" in file:
+                import hashlib
+
+                result = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(UPSTREAM.parent),
+                        "show",
+                        f"{file['upstream_revision']}:{file['upstream_file']}",
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                assert (
+                    hashlib.sha256(result.stdout).hexdigest() == file["upstream_sha256"]
+                )
+            else:
+                assert sha256(upstream) == file["upstream_sha256"]

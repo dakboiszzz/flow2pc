@@ -4,7 +4,7 @@ teachers = Registry("teacher")
 teachers.register(
     "alicfm",
     "flow2pc.pretrain.models.alicfm.trainer:ALICFM",
-    "Migrated source training stages for CITE/Multi; other experiments remain legacy.",
+    "Original ALI-CFM profiles for CITE/Multi, EB PHATE, ST, knot and cell tracking.",
 )
 for name in ("mfm", "mmfm", "otpfm"):
     teachers.register(

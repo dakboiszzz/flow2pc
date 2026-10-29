@@ -43,10 +43,11 @@ actual archived paths. `manifest.json` and `RESTORE.md` document recovery. No Gi
 history, external dataset or trained model checkpoint was deleted or rewritten.
 
 An unfinished CITE example was set aside under `pending_example/` so the cleanup
-could be completed before adding new entry points. No further running script was
-added as part of this cleanup. The current unified distillation CLI remains a
-configuration-only boundary; these notes do not claim that the previously
-archived experiment launchers have all been migrated or runtime-verified.
+could be completed before adding new entry points. Subsequent user-authorized
+work adds dataset-specific ALI-CFM teacher profiles and the unified velocity-MSE
+student runner. See [the dataset migration notes](ALICFM_DATASETS.md) for source
+recovery, commands and limits. Old experiment/sweep/evaluation launchers have not
+all been migrated, and the new integration has not been runtime-verified.
 
 ## Validation scope
 

@@ -20,22 +20,44 @@ def main(argv=None):
         action="store_true",
         help="Resolve config and data metadata without training or writing outputs",
     )
+    parser.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override a YAML setting, e.g. --set training.device=cuda:1",
+    )
     args = parser.parse_args(argv)
     if args.list_models or args.list_datasets:
         registry = teachers if args.list_models else datasets
         print(json.dumps(registry.describe(), indent=2))
         return 0
     try:
-        config = load_config(args.config)
+        config = load_config(args.config, args.set)
         if config["stage"] == "distill":
+            from flow2pc.distill.runner import prepare, run
+
             if args.validate_only:
-                print(json.dumps(config, indent=2))
+                inspected = dict(
+                    config, distillation={**config["distillation"], "device": "cpu"}
+                )
+                teacher, dataset, sampler = prepare(inspected)
+                print(
+                    json.dumps(
+                        {
+                            "config": config,
+                            "dataset": dataset.contract(),
+                            "sampler": sampler,
+                            "teacher_frozen": not any(
+                                p.requires_grad for p in teacher.parameters()
+                            ),
+                        },
+                        indent=2,
+                    )
+                )
                 return 0
-            raise NotImplementedError(
-                "Framework distillation execution remains a separate migration phase. "
-                "The HCLT and frozen ALI-CFM interfaces remain available. "
-                "This command currently validates the distillation config contract only."
-            )
+            print(json.dumps({"checkpoint": str(run(config))}, indent=2))
+            return 0
         from flow2pc.pretrain.runner import prepare, run
 
         if args.validate_only:

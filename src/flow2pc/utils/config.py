@@ -46,10 +46,24 @@ def resolve_path(value, base, label):
     return str((base / path).resolve() if not path.is_absolute() else path.resolve())
 
 
-def load_config(path):
+def load_config(path, overrides=()):
     path = Path(path).resolve()
     with path.open() as handle:
-        return resolve_config(yaml.safe_load(handle), base=path.parent)
+        raw = yaml.safe_load(handle)
+    for override in overrides:
+        if "=" not in override:
+            raise ValueError("Overrides must use dotted.key=value")
+        name, value = override.split("=", 1)
+        keys = name.split(".")
+        target = raw
+        if not all(keys):
+            raise ValueError("Override keys cannot be empty")
+        for key in keys[:-1]:
+            target = target.setdefault(key, {})
+            if not isinstance(target, dict):
+                raise ValueError(f"Override parent is not a mapping: {name}")
+        target[keys[-1]] = yaml.safe_load(value)
+    return resolve_config(raw, base=path.parent)
 
 
 def resolve_config(raw, *, base):
@@ -112,21 +126,55 @@ def resolve_config(raw, *, base):
         for key in ("teacher", "student", "distillation"):
             if key not in config:
                 raise ValueError(f"Missing distill config key: {key}")
-        teacher = mapping(config["teacher"], "teacher", {"checkpoint"}, {"checkpoint"})
+        teacher = mapping(
+            config["teacher"],
+            "teacher",
+            {"checkpoint", "format", "legacy_metadata", "generator_checkpoint"},
+            {"checkpoint"},
+        )
         teacher["checkpoint"] = resolve_path(
             teacher["checkpoint"], base, "teacher.checkpoint"
         )
+        teacher_format = teacher.setdefault(
+            "format", "legacy" if "legacy_metadata" in teacher else "framework"
+        )
+        if teacher_format not in ("framework", "legacy"):
+            raise ValueError("teacher.format must be framework or legacy")
+        if teacher_format == "legacy" and "legacy_metadata" not in teacher:
+            raise ValueError(
+                "Existing checkpoints require their explicit legacy_metadata contract"
+            )
+        if teacher_format == "framework" and (
+            "legacy_metadata" in teacher or "generator_checkpoint" in teacher
+        ):
+            raise ValueError(
+                "Legacy metadata/generator options require teacher.format: legacy"
+            )
+        for key in ("legacy_metadata", "generator_checkpoint"):
+            if key in teacher:
+                teacher[key] = resolve_path(teacher[key], base, f"teacher.{key}")
         student = mapping(config["student"], "student", {"name", "params"}, {"name"})
         if student["name"] != "hclt":
-            raise ValueError(
-                "The retained distillation student is hclt"
-            )
+            raise ValueError("The retained distillation student is hclt")
         if not isinstance(student.setdefault("params", {}), dict):
             raise ValueError("student.params must be a mapping")
         d = mapping(
             config["distillation"],
             "distillation",
-            {"sampler", "steps", "batch_size", "lr"},
+            {
+                "sampler",
+                "steps",
+                "batch_size",
+                "lr",
+                "device",
+                "resume",
+                "validate_every",
+                "checkpoint_every",
+                "log_every",
+                "validation_batches",
+                "validation_batch_size",
+                "teacher_path_particles",
+            },
             {"sampler", "steps", "batch_size", "lr"},
         )
         mapping(d["sampler"], "distillation.sampler", {"name", "params"}, {"name"})
@@ -141,4 +189,18 @@ def resolve_config(raw, *, base):
                 raise ValueError(f"distillation.{key} must be a positive integer")
         if type(d["lr"]) not in (int, float) or not isfinite(d["lr"]) or d["lr"] <= 0:
             raise ValueError("distillation.lr must be finite and positive")
+        for key in (
+            "validate_every",
+            "checkpoint_every",
+            "log_every",
+            "validation_batches",
+            "validation_batch_size",
+            "teacher_path_particles",
+        ):
+            if key in d and (type(d[key]) is not int or d[key] < 1):
+                raise ValueError(f"distillation.{key} must be a positive integer")
+        if type(d.setdefault("resume", False)) is not bool:
+            raise ValueError("distillation.resume must be boolean")
+        if not isinstance(d.setdefault("device", "cpu"), str):
+            raise ValueError("distillation.device must be a device string")
     return config

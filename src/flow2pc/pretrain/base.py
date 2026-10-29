@@ -16,7 +16,7 @@ class TeacherMethod(Protocol):
     def load(self, checkpoint: Path, device: str) -> FrozenTeacher: ...
 
 
-def validate_query(x, t, dim, parameter, context):
+def validate_query(x, t, dim, parameter, context, *, allow_time_extrapolation=False):
     if context is not None:
         raise ValueError("This ALI-CFM adapter is unconditional; context must be None")
     if x.ndim != 2 or x.shape[0] == 0 or x.shape[1] != dim:
@@ -28,6 +28,6 @@ def validate_query(x, t, dim, parameter, context):
         raise ValueError("Model time must be scalar or have shape [B]")
     if not torch.isfinite(x).all() or not torch.isfinite(times).all():
         raise ValueError("States and model times must be finite")
-    if ((times < 0) | (times > 1)).any():
+    if not allow_time_extrapolation and ((times < 0) | (times > 1)).any():
         raise ValueError("ALI-CFM requires global model time in [0,1]")
     return times.expand(len(x)) if times.ndim == 0 else times

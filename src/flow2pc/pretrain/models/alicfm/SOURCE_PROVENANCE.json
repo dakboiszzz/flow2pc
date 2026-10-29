@@ -3,7 +3,7 @@
   "local_source": "../ali-cfm",
   "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
   "license_declaration": "MIT, declared in upstream pyproject.toml",
-  "scope": "Core networks, regularization, sampling and training functions from the supplied local checkout. Local source hashes identify modifications beyond the Git revision.",
+  "scope": "Core networks, sampling and staged training functions from the supplied checkout, with the ST piecewise implementation restored from its matching historical revision. Per-file revisions override the default revision.",
   "files": [
     {
       "upstream_file": "ali_cfm/nets.py",
@@ -36,6 +36,68 @@
       "migrated_file": "training_utils.py",
       "migrated_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
       "changes": []
+    },
+    {
+      "upstream_file": "ali_cfm/scripts/train_ali_st.py",
+      "upstream_sha256": "26e5b594e5058ea89cc62b1937cc93c2c68c7db14991e368215cf5e4f5222327",
+      "migrated_file": "st.py",
+      "migrated_sha256": "c92fec648de55f87dae5e2b1dda1e0152d82345104cb8d3649acc0fcf320de4d",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ],
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823"
+    },
+    {
+      "upstream_file": "ali_cfm/scripts/train_ali_tracking.py",
+      "upstream_sha256": "63ac77a785097a30d9066f830a12e5ee86e053df2a90e6ae96bc0f522bfd313f",
+      "migrated_file": "tracking.py",
+      "migrated_sha256": "5b7865b35b10e732b4b39c8752076ecdc7c5c1b9866107b847aa4c3bd685c607",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ]
+    },
+    {
+      "upstream_file": "train_teacher.py",
+      "upstream_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "migrated_file": "knot.py",
+      "migrated_sha256": "0df57fd9dbe89862c150f5c9bf9ed31729775d165c05f4a90901436ceccfbd9b",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ]
+    },
+    {
+      "upstream_file": "ali_cfm/nets.py",
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_sha256": "65ec31b1dd3c0fa87920d9a9e6d00ef37ec118dd0a7de803fc25d13c9f57f483",
+      "migrated_file": "st_interpolant.py",
+      "migrated_sha256": "3aca0a227ed7901cb229507db3e057673e17daea069887dcac7491a26704ff18",
+      "changes": [
+        "Selected compute_piecewise_reg_term and dI_dt verbatim from TrainableInterpolant in the ST-era revision, in STInterpolant. Inherited layer construction and forward formula are unchanged."
+      ]
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_funcs.py",
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_sha256": "6c2002f3cf4b2fc7e0041f90df86a5451768926b1b17d5db3fafba92298955a8",
+      "migrated_file": "st_training.py",
+      "migrated_sha256": "f55996f15fe472115c9766f4add406d46182d9dcba5f355e26292d521eec9a35",
+      "changes": [
+        "Selected pretain_interpolant and train_interpolant_with_gan from the same ST-era revision. Added optional logger injection; no optimization or sampling statements changed."
+      ]
     }
-  ]
+  ],
+  "profile_revisions": {
+    "st": "501e9db6a3bcb1b96eb893882b62a56f78fe1823"
+  },
+  "profile_configs": {
+    "st": {
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_file": "configs/st/st_cfg.yaml",
+      "upstream_sha256": "80b0756523053baba6435715f0bed302be26d75dff911e4e03d18080c3e43d14",
+      "migrated_file": "configs/pretrain/alicfm_st.yaml",
+      "changes": [
+        "One fold and seed per run; shared train-only split/scaling contract; W&B/local output plumbing. Original model sizes, staged objectives, OT settings, learning rates, batches and update counts retained."
+      ]
+    }
+  }
 }

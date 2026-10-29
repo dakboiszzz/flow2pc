@@ -1,0 +1,51 @@
+# Supplied ../ali-cfm/train_teacher.py knot networks and losses; fresh independent analytic noisy marginals; recorded snapshot seed for student queries.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    cfm_dim: 32
+    interpolant_dim: 128
+    disc_dim: 128
+    t_smooth: 0.0
+    pretain_ot: none
+    interpolant_ot: none
+    cfm_ot: none
+    correct_coeff: 1.0
+    reg_metric: l2
+    land_gamma: 2.0e-08
+    land_t_gamma: 2.0e-08
+    land_epsilon: 1.0e-06
+    reg_term_type: linear
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: vanilla
+    r3gan_gamma: 1.0
+    profile: knot
+data:
+  name: knot
+  root: /data/lthung/ali-cfm-data
+  params:
+    size: 120
+    samples_per_time: 10
+    noise_std: 0.01
+    normalise: false
+    whiten: false
+    validation_fraction: 0.1
+    test_fraction: 0.1
+training:
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 0
+  pretrain_lr: 0.001
+  num_ali_train_steps: 50000
+  interpolant_gen_lr: 0.001
+  interpolant_disc_lr: 0.001
+  num_cfm_train_steps: 30000
+  cfm_lr: 0.0001
+logging:
+  mode: online
+  project: flow2pc
+  name: alicfm-knot-seed42
+output:
+  dir: /data/lthung/flow2pc/framework/pretrain/alicfm/knot/seed42

@@ -1,0 +1,53 @@
+# ST teacher method/config recovered from ALI-CFM 501e9db (before the later
+# single-cell refactor broke its piecewise call). Original objectives retained.
+# New runs use train-only splits/scaling and save them for student reuse;
+# this is not a bitwise replay of the historical all-spots experiment.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    cfm_dim: 128
+    interpolant_dim: 64
+    disc_dim: 64
+    t_smooth: 0.001
+    pretain_ot: full
+    interpolant_ot: full
+    cfm_ot: full
+    correct_coeff: 10.0
+    reg_metric: l2
+    land_gamma: 2.0e-08
+    land_t_gamma: 2.0e-08
+    land_epsilon: 1.0e-06
+    reg_term_type: piecewise
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: vanilla
+    r3gan_gamma: 1.0
+    profile: st
+data:
+  name: st
+  root: /data/lthung/ali-cfm-data
+  params:
+    heldout_index: 1
+    normalise: true
+    whiten: false
+    validation_fraction: 0.05
+    test_fraction: 0.05
+training:
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 1000
+  pretrain_lr: 0.001
+  num_ali_train_steps: 70000
+  interpolant_gen_lr: 1.0e-05
+  interpolant_disc_lr: 1.0e-05
+  num_cfm_train_steps: 10000
+  cfm_lr: 0.001
+  ali_batch_size: 256
+logging:
+  mode: online
+  project: flow2pc
+  name: alicfm-st-fold1-seed42
+output:
+  dir: /data/lthung/flow2pc/framework/pretrain/alicfm/st/fold1-seed42

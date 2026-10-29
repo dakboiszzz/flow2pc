@@ -1,7 +1,4 @@
-# Migrated ALI-CFM single-fold trainer. This command starts training when run.
-# Network/objective settings come from ../ali-cfm/configs/single_cell/50D/cite-50D.yaml.
-# The shared loader now splits first and fits scaling on observed TRAIN cells.
-# This differs from the old all-day scaler and is not paper-score reproduction.
+# Upstream configs/single_cell/50D/cite-50D.yaml; unused regularizer options are explicit defaults.
 stage: pretrain
 seed: 42
 model:
@@ -14,16 +11,17 @@ model:
     pretain_ot: mmot
     interpolant_ot: mmot
     cfm_ot: mmot
-    correct_coeff: 0.00000005
+    correct_coeff: 5.0e-08
     reg_metric: land
-    land_gamma: 0.00000002
-    land_t_gamma: 0.00000002
-    land_epsilon: 0.000001
+    land_gamma: 2.0e-08
+    land_t_gamma: 2.0e-08
+    land_epsilon: 1.0e-06
     reg_term_type: 2nd_derivative
     num_t_steps: 3
     finite_difference_h: 0.001
     gan_loss: R3GAN
     r3gan_gamma: 1.0
+    profile: single_cell
 data:
   name: cite
   root: /data/lthung/ali-cfm-data
@@ -40,8 +38,8 @@ training:
   num_ali_pretrain_steps: 2000
   pretrain_lr: 0.001
   num_ali_train_steps: 70000
-  interpolant_gen_lr: 0.00005
-  interpolant_disc_lr: 0.00005
+  interpolant_gen_lr: 5.0e-05
+  interpolant_disc_lr: 5.0e-05
   num_cfm_train_steps: 2001
   cfm_lr: 0.001
 logging:

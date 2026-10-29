@@ -42,22 +42,27 @@ The existing real data lives in `/data/lthung/ali-cfm-data`; configure `data.roo
 or `FLOW2PC_DATA_ROOT` on other systems. Data, weights and results remain outside
 the code checkout.
 
-ALI-CFM pretraining is available through the existing configuration:
+Prepared ALI-CFM teacher and student commands:
 
 ```bash
-python main.py --config configs/pretrain/alicfm_cite50.yaml
+bash scripts/run_alicfm.sh pretrain cite50
+bash scripts/run_alicfm.sh distill cite50
 ```
 
-This command starts training only when explicitly executed. Its outputs are
-self-describing teacher checkpoints, fitted preprocessing and provenance.
-The unified distillation CLI still validates its configuration contract only;
-the runnable CITE-50 teacher/student example is separate follow-up work.
+These commands start training only when explicitly executed. The student loads
+the teacher checkpoint produced by the first command and optimizes velocity MSE
+only. Configs cover CITE/Multi 5D, 50D and 100D, EB PHATE-2D, spatial
+transcriptomics, knot and cell tracking. The ST teacher method is recovered from
+the matching historical ALI-CFM implementation, rather than changing its
+regularizer. See [dataset support, commands and limitations](docs/ALICFM_DATASETS.md),
+including how to use existing checkpoints with their original preprocessing.
 
 ## Development
 
 `make test` and `make lint` are available for explicit use. No training,
 distillation, evaluation or tests were executed during this cleanup, at the
-user's request. The current changes have only received static dependency review.
+user's request. The migration changes have received static checks only; their
+runtime correctness and numerical parity remain unverified.
 
 The [architecture specification](docs/ARCHITECTURE_SPEC.md) and
 [proposal](README_PROPOSAL.md) describe the broader target. References there to

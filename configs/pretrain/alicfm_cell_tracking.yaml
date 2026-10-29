@@ -1,0 +1,51 @@
+# Native ali_cell_tracking.yaml reconstruction; normalized CFM coordinates are explicitly selected to match the successful distillation convention. Set cfm_coordinates=raw for the upstream pixel-CFM variant.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    cfm_dim: 256
+    interpolant_dim: 256
+    disc_dim: 256
+    t_smooth: 0.001
+    pretain_ot: border
+    interpolant_ot: border
+    cfm_ot: border
+    correct_coeff: 1.0
+    reg_metric: l2
+    land_gamma: 2.0e-08
+    land_t_gamma: 2.0e-08
+    land_epsilon: 1.0e-06
+    reg_term_type: linear
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: vanilla
+    r3gan_gamma: 1.0
+    profile: cell_tracking
+    cfm_coordinates: model
+data:
+  name: cell_tracking
+  root: /data/lthung/ali-cfm-data
+  params:
+    normalise: true
+    whiten: false
+    validation_fraction: 0.1
+    test_fraction: 0.05
+training:
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 0
+  pretrain_lr: 0.001
+  num_ali_train_steps: 70000
+  interpolant_gen_lr: 0.0001
+  interpolant_disc_lr: 0.0001
+  num_cfm_train_steps: 50000
+  cfm_lr: 0.001
+  ali_batch_size: 128
+  samples_per_marginal: 10
+logging:
+  mode: online
+  project: flow2pc
+  name: alicfm-cell-tracking-seed42
+output:
+  dir: /data/lthung/flow2pc/framework/pretrain/alicfm/cell_tracking/seed42

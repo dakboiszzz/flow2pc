@@ -52,7 +52,7 @@ class H5Marginal(Dataset):
 
 
 class SingleCell:
-    def __init__(self, *, name, root, seed, params):
+    def __init__(self, *, name, root, seed, params, preprocessing=None):
         allowed = {
             "dim",
             "heldout_index",
@@ -123,7 +123,7 @@ class SingleCell:
             np.concatenate([self.rows[i]["train"] for i in self.observed])
         )
         shift, scale = np.zeros(self.dim), np.ones(self.dim)
-        if normalise or whiten:
+        if preprocessing is None and (normalise or whiten):
             with h5py.File(self.path, "r") as handle:
                 values = handle["obsm/X_pca"][train_rows, : self.dim].astype(np.float64)
             if not np.isfinite(values).all():
@@ -147,6 +147,22 @@ class SingleCell:
             "feature_key": "obsm/X_pca",
             "pca_recomputed": False,
         }
+        if preprocessing is not None:
+            shift = np.asarray(preprocessing.get("shift", []), dtype=np.float32)
+            scale = np.asarray(preprocessing.get("scale", []), dtype=np.float32)
+            if (
+                shift.shape != (self.dim,)
+                or scale.shape != (self.dim,)
+                or not np.isfinite(shift).all()
+                or not np.isfinite(scale).all()
+                or (scale <= 0).any()
+            ):
+                raise ValueError("Invalid saved teacher preprocessing")
+            if preprocessing.get("feature_key") != "obsm/X_pca":
+                raise ValueError(
+                    "This loader requires the teacher's released PCA representation"
+                )
+            self.preprocessing = dict(preprocessing)
         self.metadata = TemporalMetadata(
             name=name,
             dim=self.dim,

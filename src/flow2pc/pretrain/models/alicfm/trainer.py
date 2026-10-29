@@ -9,14 +9,11 @@ import math
 import subprocess
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 
-from flow2pc.pretrain.models.alicfm.model import (
-    MLP,
-    Discriminator,
-    TrainableInterpolant,
-)
+from flow2pc.pretrain.models.alicfm.profiles import make_models, profile_for, train_knot
 from flow2pc.utils.checkpoint import atomic_json, atomic_path, save_teacher, sha256
 from flow2pc.utils.seed import seed_everything
 
@@ -62,8 +59,8 @@ class MethodConfig(dict):
 
 
 class LocalLogger:
-    def __init__(self, directory, config):
-        self.handle = (directory / "metrics.jsonl").open("w")
+    def __init__(self, directory, config, append=False):
+        self.handle = (directory / "metrics.jsonl").open("a" if append else "w")
         self.run = None
         try:
             if config["logging"]["mode"] != "disabled":
@@ -95,9 +92,11 @@ class LocalLogger:
 class ALICFM:
     def validate(self, config):
         model, train = config["model"]["params"], config["training"]
+        optional_model = {"profile", "cfm_coordinates"}
+        optional_training = {"samples_per_marginal"}
         if (
-            set(model) != MODEL_KEYS
-            or set(train) - TRAIN_KEYS
+            set(model) - optional_model != MODEL_KEYS
+            or set(train) - TRAIN_KEYS - optional_training
             or TRAIN_KEYS - {"ali_batch_size"} - set(train)
         ):
             raise ValueError(
@@ -157,19 +156,65 @@ class ALICFM:
             for key in ("pretain_ot", "interpolant_ot", "cfm_ot")
         ):
             raise ValueError("Unsupported ALI-CFM coupling")
-        if model["reg_term_type"] not in ("2nd_derivative", "linear") or model[
-            "reg_metric"
-        ] not in ("l2", "land"):
+        profile = profile_for(config["data"]["name"])
+        if profile == "st":
+            if (
+                model["reg_term_type"] != "piecewise"
+                or model["reg_metric"] != "l2"
+                or model["gan_loss"] != "vanilla"
+            ):
+                raise ValueError(
+                    "The recovered ST setup uses piecewise/l2 and vanilla GAN, from ALI-CFM 501e9db"
+                )
+        elif model["reg_term_type"] not in (
+            "2nd_derivative",
+            "linear",
+            "picewise_oskar_version",
+        ) or model["reg_metric"] not in ("l2", "land"):
             raise ValueError(
-                "Initial migration supports linear/2nd_derivative with l2/land only"
+                "Supported branches outside ST: linear, 2nd_derivative, picewise_oskar_version with l2/land. ST uses its separately recovered piecewise implementation."
             )
-        if model["gan_loss"] not in ("RpGAN", "R3GAN", "GAN"):
+        if model["gan_loss"] not in ("RpGAN", "R3GAN", "GAN", "vanilla"):
             raise ValueError("Unsupported GAN loss")
         device = torch.device(train["device"])
         if device.type not in ("cpu", "cuda"):
             raise ValueError("Training device must be cpu or cuda")
-        if config["data"]["name"] not in ("cite", "multi"):
-            raise ValueError("This ALI-CFM trainer supports CITE/Multi only")
+        if model.get("profile", profile) != profile:
+            raise ValueError("Teacher profile does not match the selected dataset")
+        if model.get("cfm_coordinates", "model") not in ("model", "raw"):
+            raise ValueError("cfm_coordinates must be model or raw")
+        if (
+            model.get("cfm_coordinates", "model") == "raw"
+            and profile != "cell_tracking"
+        ):
+            raise ValueError("The raw-coordinate CFM variant belongs to cell tracking")
+        if "samples_per_marginal" in train and (
+            type(train["samples_per_marginal"]) is not int
+            or train["samples_per_marginal"] < 1
+        ):
+            raise ValueError("samples_per_marginal must be a positive integer")
+        if profile in ("st", "cell_tracking") and config["data"]["params"].get(
+            "whiten", False
+        ):
+            raise ValueError("Spatial teacher profiles require unwhitened coordinates")
+        if profile == "knot" and (
+            model["reg_term_type"] != "linear"
+            or model["reg_metric"] != "l2"
+            or model["t_smooth"] != 0
+            or any(
+                model[key] != "none"
+                for key in ("pretain_ot", "interpolant_ot", "cfm_ot")
+            )
+        ):
+            raise ValueError(
+                "The original knot trainer uses linear/l2, no OT and no time smoothing"
+            )
+        if model["reg_term_type"] == "picewise_oskar_version" and config["data"][
+            "params"
+        ].get("heldout_index") not in (1, 2):
+            raise ValueError(
+                "The recovered three-point piecewise branch requires one held-out ST/CITE interior marginal"
+            )
 
     def fit(self, dataset, config, run_dir):
         self.validate(config)
@@ -185,18 +230,38 @@ class ALICFM:
             )
         cfg = MethodConfig(**config["model"]["params"], **config["training"])
         cfg.dim = dataset.dim
-        clouds = [dataset.get_marginal(i, "train").materialize() for i in range(4)]
+        cfg.profile = profile_for(dataset.metadata.name)
+        cfg.cfm_coordinates = cfg.get("cfm_coordinates", "model")
+        clouds = [
+            dataset.get_marginal(i, "train").materialize()
+            for i in range(len(dataset.metadata.model_times))
+        ]
         if any(len(clouds[i]) == 0 for i in dataset.observed):
             raise ValueError("Empty observed training marginal")
         seed_everything(config["seed"])
         device = cfg.device
-        interpolant = TrainableInterpolant(
-            cfg.dim, cfg.interpolant_dim, cfg.t_smooth
-        ).to(device)
-        discriminator = Discriminator(
-            cfg.dim + 1, cfg.disc_dim, apply_sigmoid=False
-        ).to(device)
-        field = MLP(cfg.dim, w=cfg.cfm_dim, time_varying=True).to(device)
+        subset_indices = None
+        if "samples_per_marginal" in cfg:
+            budget = cfg.samples_per_marginal
+            if any(len(clouds[i]) < budget for i in dataset.observed):
+                raise ValueError(
+                    "Teacher subset budget exceeds an observed training pool"
+                )
+            subset_indices = {
+                str(i): np.random.choice(len(clouds[i]), budget, replace=False).tolist()
+                for i in dataset.observed
+            }
+            clouds = [
+                x[subset_indices[str(i)]] if i in dataset.observed else x
+                for i, x in enumerate(clouds)
+            ]
+        model_config = dict(
+            config["model"]["params"],
+            dim=dataset.dim,
+            profile=cfg.profile,
+            cfm_coordinates=cfg.cfm_coordinates,
+        )
+        interpolant, discriminator, field = make_models(model_config, device)
         optimizers = {
             "pretrain": torch.optim.Adam(interpolant.parameters(), lr=cfg.pretrain_lr),
             "generator": torch.optim.Adam(
@@ -216,43 +281,24 @@ class ALICFM:
         logger = None
         try:
             logger = LocalLogger(run_dir, config)
-            stages.pretain_interpolant(
-                interpolant,
-                optimizers["pretrain"],
-                ot_sampler,
-                clouds,
-                dataset.observed,
-                "ali/pretrain",
-                cfg,
-                logger=logger,
-            )
-            stages.train_interpolant_with_gan(
-                interpolant,
-                discriminator,
-                ot_sampler,
-                clouds,
-                optimizers["generator"],
-                optimizers["discriminator"],
-                "ali/gan",
-                dataset.observed,
-                config["seed"],
-                None,
-                cfg,
-                plot_freaquency=0,
-                logger=logger,
-            )
-            stages.train_ot_cfm(
-                field,
-                optimizers["cfm"],
-                interpolant,
-                ot_sampler,
-                clouds,
-                "ali/cfm",
-                cfg,
-                dataset.observed,
-                None,
-                logger=logger,
-            )
+            if cfg.profile == "knot":
+                train_knot(
+                    interpolant, discriminator, field, optimizers, dataset, cfg, logger
+                )
+            else:
+                self._train_stages(
+                    stages,
+                    interpolant,
+                    discriminator,
+                    field,
+                    optimizers,
+                    ot_sampler,
+                    clouds,
+                    dataset,
+                    cfg,
+                    config["seed"],
+                    logger,
+                )
             provenance_path = Path(__file__).with_name("SOURCE_PROVENANCE.json")
             provenance = json.loads(provenance_path.read_text())
             for file in provenance["files"]:
@@ -273,18 +319,25 @@ class ALICFM:
                 ).stdout.strip()
             except (OSError, subprocess.CalledProcessError):
                 revision = None
-            model_config = dict(config["model"]["params"], dim=dataset.dim)
             manifest = {
                 "method": "alicfm",
-                "method_version": provenance["upstream_revision"],
+                "method_version": provenance.get("profile_revisions", {}).get(
+                    cfg.profile, provenance["upstream_revision"]
+                ),
                 "model_config": model_config,
                 "training_config": config["training"],
                 "dataset": dataset.contract(),
                 "seed": config["seed"],
                 "code_revision": revision,
                 "source_provenance": provenance,
-                "training_protocol": "one_fold; train_only_affine_scaling; native_ALI_then_CFM",
-                "distillation_compatibility": "Requires valid query sampler and free-source PC; not asserted by teacher training",
+                "teacher_subset_indices": subset_indices,
+                "training_protocol": f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages",
+                "distillation_sampler": {
+                    "single_cell": "mmot_middle",
+                    "st": "independent",
+                    "knot": "independent",
+                    "cell_tracking": "border_ot",
+                }[cfg.profile],
             }
 
             def state(model):
@@ -293,14 +346,22 @@ class ALICFM:
                     for name, value in model.state_dict().items()
                 }
 
-            payload = {
-                "cfm_model": state(field),
-                "interpolant": state(interpolant),
-                "discriminator": state(discriminator),
-                "optimizer_states": {k: v.state_dict() for k, v in optimizers.items()},
-                "torch_rng_state": torch.get_rng_state(),
-            }
-            checkpoint = save_teacher(run_dir, payload, manifest, dataset.preprocessing)
+            checkpoint = save_teacher(
+                run_dir,
+                {
+                    "cfm_model": state(field),
+                    "interpolant": state(interpolant),
+                    "discriminator": state(discriminator),
+                    "optimizer_states": {
+                        k: v.state_dict() for k, v in optimizers.items()
+                    },
+                    "torch_rng_state": torch.get_rng_state(),
+                },
+                manifest,
+                dataset.preprocessing,
+            )
+            logger.close()
+            logger = None
             atomic_json(run_dir / "status.json", {"status": "complete"})
         except BaseException as error:
             atomic_json(
@@ -309,9 +370,97 @@ class ALICFM:
             if logger is not None:
                 logger.close(failed=True)
             raise
-        else:
-            logger.close()
         return checkpoint
+
+    @staticmethod
+    def _train_stages(
+        stages,
+        interpolant,
+        discriminator,
+        field,
+        optimizers,
+        ot_sampler,
+        clouds,
+        dataset,
+        cfg,
+        seed,
+        logger,
+    ):
+        ali_cfg = cfg
+        if cfg.profile == "st":
+            from flow2pc.pretrain.models.alicfm._source import st_training as stages
+
+            # The original ST config has GAN/pretrain B=256 and CFM B=128.
+            ali_cfg = MethodConfig(
+                cfg, batch_size=cfg.get("ali_batch_size", cfg.batch_size)
+            )
+        stages.pretain_interpolant(
+            interpolant,
+            optimizers["pretrain"],
+            ot_sampler,
+            clouds,
+            dataset.observed,
+            "ali/pretrain",
+            ali_cfg,
+            logger=logger,
+        )
+        stages.train_interpolant_with_gan(
+            interpolant,
+            discriminator,
+            ot_sampler,
+            clouds,
+            optimizers["generator"],
+            optimizers["discriminator"],
+            "ali/gan",
+            dataset.observed,
+            seed,
+            None,
+            ali_cfg,
+            plot_freaquency=0,
+            logger=logger,
+        )
+        if cfg.profile in ("st", "cell_tracking"):
+            if cfg.profile == "st":
+                from flow2pc.pretrain.models.alicfm._source.st import train_ot_cfm
+            else:
+                from flow2pc.pretrain.models.alicfm._source.tracking import train_ot_cfm
+            shift = torch.tensor(dataset.preprocessing["shift"], dtype=torch.float32)
+            scale = torch.tensor(dataset.preprocessing["scale"], dtype=torch.float32)
+            kwargs = (
+                {"normalized_coordinates": cfg.cfm_coordinates == "model"}
+                if cfg.profile == "cell_tracking"
+                else {}
+            )
+            interpolant.requires_grad_(False)
+            train_ot_cfm(
+                field,
+                optimizers["cfm"],
+                interpolant,
+                ot_sampler,
+                clouds,
+                cfg.batch_size,
+                (shift, shift + scale),
+                cfg.num_cfm_train_steps,
+                metric_prefix="ali/cfm",
+                ot=cfg.cfm_ot,
+                device=cfg.device,
+                times=dataset.observed,
+                logger=logger,
+                **kwargs,
+            )
+        else:
+            stages.train_ot_cfm(
+                field,
+                optimizers["cfm"],
+                interpolant,
+                ot_sampler,
+                clouds,
+                "ali/cfm",
+                cfg,
+                dataset.observed,
+                None,
+                logger=logger,
+            )
 
     def load(self, checkpoint, device="cpu"):
         from flow2pc.pretrain.models.alicfm.adapter import load

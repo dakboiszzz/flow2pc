@@ -25,7 +25,13 @@ def run(config):
     return method.fit(dataset, config, Path(config["output"]["dir"]))
 
 
-def load_teacher(checkpoint, device="cpu"):
+def load_teacher(
+    checkpoint, device="cpu", *, legacy_metadata=None, generator_checkpoint=None
+):
+    if legacy_metadata is not None:
+        from flow2pc.pretrain.models.alicfm.legacy import load
+
+        return load(checkpoint, legacy_metadata, device, generator_checkpoint)
     manifest_path = Path(checkpoint).resolve().parent.parent / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     return teachers.get(manifest["method"])().load(checkpoint, device)
