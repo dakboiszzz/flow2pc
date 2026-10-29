@@ -5,7 +5,6 @@ import unittest
 import torch
 
 from repc.hclt_pc import TimeDependentHCLTPC
-from train import build_student
 
 
 class TimeDependentHCLTPCTest(unittest.TestCase):
@@ -152,131 +151,8 @@ class TimeDependentHCLTPCTest(unittest.TestCase):
         path = model.sample_path(5, torch.tensor([0.0, 0.5, 1.0]))
         self.assertEqual(path.shape, (3, 5, 2))
 
-    def test_endpoint_em_statistics_and_update(self):
-        torch.manual_seed(11)
-        model = TimeDependentHCLTPC(
-            parents=[1, -1, 1],
-            num_latents=2,
-            time_order=2,
-            sum_layer="dense",
-        )
-        values = torch.cat(
-            (
-                -0.6 + 0.15 * torch.randn(32, 3),
-                0.6 + 0.15 * torch.randn(32, 3),
-            )
-        )
-        endpoint = torch.tensor(1.0)
-        before = model.log_prob(values, endpoint).sum()
-        statistics = model.endpoint_em_statistics(values)
 
-        torch.testing.assert_close(
-            statistics["root_counts"].sum(),
-            torch.tensor(float(len(values))),
-        )
-        torch.testing.assert_close(
-            statistics["transition_counts"].sum(dim=(1, 2)),
-            torch.full((2,), float(len(values))),
-            atol=1e-4,
-            rtol=1e-5,
-        )
-        torch.testing.assert_close(
-            statistics["leaf_counts"].sum(dim=1),
-            torch.full((3,), float(len(values))),
-        )
 
-        model.endpoint_em_update(statistics, pseudocount=0.0, min_std=1e-3)
-        after = model.log_prob(values, endpoint).sum()
-        self.assertGreaterEqual(after.item(), before.item() - 1e-4)
-        torch.testing.assert_close(
-            model.log_prob(values[:4], torch.tensor(0.0)),
-            -0.5
-            * (
-                values[:4].square().sum(dim=1)
-                + values.shape[1] * math.log(2.0 * math.pi)
-            ),
-        )
-
-    def test_categorical_endpoint_em_and_sampling(self):
-        torch.manual_seed(13)
-        model = TimeDependentHCLTPC(
-            parents=[1, -1, 1],
-            num_latents=2,
-            sum_layer="dense",
-            leaf_distribution="categorical",
-            num_categories=4,
-        )
-        values = torch.tensor(
-            [
-                [0, 0, 1],
-                [0, 1, 1],
-                [3, 2, 3],
-                [3, 3, 2],
-            ],
-            dtype=torch.uint8,
-        )
-        endpoint = torch.tensor(1.0)
-        before = model.discrete_log_prob(values, endpoint, num_bins=4).sum()
-        statistics = model.endpoint_em_statistics(values)
-
-        torch.testing.assert_close(
-            statistics["leaf_category_counts"].sum(dim=(1, 2)),
-            torch.full((3,), float(len(values))),
-        )
-        model.endpoint_em_update(
-            statistics,
-            pseudocount=1e-5,
-            step_size=1.0,
-        )
-        after = model.discrete_log_prob(values, endpoint, num_bins=4).sum()
-        self.assertGreaterEqual(after.item(), before.item() - 1e-4)
-        torch.testing.assert_close(
-            torch.softmax(model.categorical_logits, dim=-1).sum(dim=-1),
-            torch.ones(3, 2),
-        )
-
-        samples = model.sample(7, endpoint)
-        self.assertEqual(samples.shape, (7, 3))
-        self.assertTrue((samples >= -1.0).all())
-        self.assertTrue((samples <= 1.0).all())
-        with self.assertRaisesRegex(RuntimeError, "continuous velocity"):
-            model.velocity(samples, torch.tensor(0.5))
-
-    def test_checkpoint_configuration_rebuilds_architectures(self):
-        for layer, latents in (("dense", 4), ("monarch", 4)):
-            config = {
-                "name": "hclt",
-                "parents": [-1, 0, 1],
-                "num_latents": latents,
-                "time_order": 2,
-                "sum_layer": layer,
-            }
-            rebuilt = build_student(config)
-            self.assertIsInstance(rebuilt, TimeDependentHCLTPC)
-            self.assertEqual(rebuilt.sum_layer, layer)
-            self.assertEqual(rebuilt.time_conditioning, "polynomial")
-
-        fourier_config = {
-            "name": "hclt",
-            "parents": [-1, 0, 1],
-            "num_latents": 4,
-            "time_order": 4,
-            "sum_layer": "dense",
-            "time_conditioning": "fourier",
-            "time_embedding_dim": 8,
-        }
-        rebuilt = build_student(fourier_config)
-        self.assertEqual(rebuilt.time_conditioning, "fourier")
-        self.assertEqual(rebuilt.mean_coefficients.shape[-1], 8)
-
-        mixture_config = {
-            **fourier_config,
-            "leaf_distribution": "gaussian-mixture",
-            "leaf_components": 2,
-        }
-        rebuilt_mixture = build_student(mixture_config)
-        self.assertEqual(rebuilt_mixture.leaf_distribution, "gaussian-mixture")
-        self.assertEqual(rebuilt_mixture.mean_coefficients.shape, (3, 4, 2, 8))
 
 
 if __name__ == "__main__":

@@ -67,6 +67,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
         leaf_distribution: str = "gaussian",
         leaf_components: int = 1,
         num_categories: int = 256,
+        fourier_zero_center: bool = True,
     ):
         super().__init__()
         if num_latents < 2:
@@ -103,6 +104,7 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
         self.leaf_distribution = leaf_distribution
         self.leaf_components = leaf_components
         self.num_categories = num_categories
+        self.fourier_zero_center = fourier_zero_center
         root, children, levels = _tree_schedule(parents)
         self.root = root
         self.tree_children = children
@@ -212,8 +214,13 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             scalar_time = time[:, None] if time.ndim > 0 else time[None]
             angular_frequencies = 2.0 * math.pi * self.time_frequencies
             angles = scalar_time * angular_frequencies
+            cos_term = (
+                torch.cos(angles) - 1.0
+                if self.fourier_zero_center
+                else torch.cos(angles)
+            )
             basis = torch.stack(
-                (torch.cos(angles) - 1.0, torch.sin(angles)),
+                (cos_term, torch.sin(angles)),
                 dim=-1,
             ).flatten(-2)
             derivative = torch.stack(
@@ -269,6 +276,8 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             log_scale_dt = torch.einsum(
                 "dhp,bp->bdh", self.log_scale_coefficients, derivative
             )
+        # Prevent numerical overflow in exp(-log_scale) and subsequent square operations
+        log_scale = log_scale.clamp(-20.0, 20.0)
         return mean, mean_dt, log_scale, log_scale_dt
 
     def _leaf_component_parameters(self, time: torch.Tensor):

@@ -520,12 +520,8 @@ def test_distill_contract_does_not_silently_train(tmp_path):
 def test_pc_exports_preserve_existing_implementation():
     from flow2pc import pc
     from repc.hclt_pc import TimeDependentHCLTPC
-    from repc.pc import TimeDependentGaussianPC
-    from repc.region_pc import RegionGraphPC
 
     assert pc.TimeDependentHCLTPC is TimeDependentHCLTPC
-    assert pc.TimeDependentGaussianPC is TimeDependentGaussianPC
-    assert pc.RegionGraphPC is RegionGraphPC
 
 
 def test_packaged_source_has_recorded_integrity():

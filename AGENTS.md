@@ -21,9 +21,10 @@ This repository is a research project that **reconfigures pretrained flow-matchi
 
 ## Existing repo compatibility
 
-- Original implementation baseline: `3eb65ef67e8643dd844c9a9e819899316ffff542` (`feat: add literature-aligned flow-to-PC benchmarks`). See `docs/BASELINE.json`.
-- Inspect root `train.py`, `eval.py`, `src/flow2pc/pc/`, `src/repc/`, `tests/`, `README.md`, and `pyproject.toml` first. PC implementation ownership has moved into `flow2pc`; `src/repc` contains compatibility aliases.
-- Preserve legacy commands and import paths; the six root legacy entry points are thin wrappers and their implementations live in `flow2pc.legacy`. Evaluation still depends on training helpers.
+- The original PC baseline is `3eb65ef67e8643dd844c9a9e819899316ffff542`. MNIST trainers, evaluation, classifier, benchmark commands and their wrappers have since been retired at the user's explicit request.
+- Inspect `src/flow2pc/pc/`, `src/flow2pc/pretrain/models/alicfm/`, the shared utilities, and relevant tests before editing. Keep the HCLT model and all directly or indirectly imported helpers intact.
+- Preserve real-data distillation model/checkpoint/teacher interfaces. Before archiving a file, inspect its callers and transitive imports. Do not remove mixed-purpose files just because some of their branches are unused.
+- The user requested scripts only: do not run training, distillation, evaluation or tests without a new explicit request. Read-only inspection and file edits remain allowed.
 - Reuse and test existing PC implementations rather than silently rewriting their mathematics.
 - Never automatically download large datasets or commit raw data, processed arrays, checkpoints, logs, or secrets.
 

@@ -1,96 +1,64 @@
 # Flow2PC
 
-Flow2PC reconfigures pretrained flow-matching velocity fields into time-dependent
-probabilistic circuits. Teacher pretraining and PC distillation have separate
-ownership, with shared configuration, data and checkpoint contracts.
+Flow2PC distills a frozen flow-matching velocity field into a time-dependent
+probabilistic circuit. The student training objective is teacher-velocity MSE.
 
-The original PC and MNIST implementation is preserved from **`3eb65ef` —
-`feat: add literature-aligned flow-to-PC benchmarks`**. The package layout changes
-its ownership and imports, while retaining the baseline mathematical definitions.
-See [the baseline source map](docs/BASELINE.json) and
-[migration guide](docs/MIGRATION.md).
+## Retained code
 
-## Installation
+```text
+main.py
+configs/pretrain/
+src/flow2pc/
+  pc/hclt_pc.py                 HCLT student and its original checkpoint API
+  pc/base.py                    shared circuit interface
+  pc/gaussian_pc.py             helpers imported by the HCLT implementation
+  pretrain/models/alicfm/       ALI-CFM networks, training and frozen adapters
+  data/                        real-data loaders and time metadata
+  utils/                       configuration, checkpoints and provenance
+  distill/                     unified distillation integration boundary
+src/repc/                      retained model/ALI-adapter compatibility imports
+tests/                         HCLT mathematics and shared framework contracts
+docs/                          architecture and migration notes
+```
 
-Use Python 3.11 or newer in a project environment:
+The HCLT implementation retains the constructor, free-source Fourier option,
+state-dict keys and velocity calculations used in the successful real-data runs.
+Its Gaussian/base helper files are retained because they are actual imports.
+The ALI-CFM classes from the real-data version of `flow.py` are kept in
+`pretrain/models/alicfm/checkpoint_adapter.py`, with `repc.flow` compatibility.
+
+MNIST trainers, classifier, image metrics, endpoint/benchmark commands, loader,
+TorchCFM MNIST model and their compatibility wrappers have been archived outside
+the repository. The unused region-graph benchmark and MNIST topology modules were
+also archived. See [the cleanup and migration notes](docs/MIGRATION.md).
+
+## Setup
 
 ```bash
 python -m pip install -e '.[dev,alicfm]'
 ```
 
-## Layout
+The existing real data lives in `/data/lthung/ali-cfm-data`; configure `data.root`
+or `FLOW2PC_DATA_ROOT` on other systems. Data, weights and results remain outside
+the code checkout.
 
-```text
-main.py                          configuration-driven entry point
-configs/pretrain/                verified method configuration
-src/flow2pc/
-  cli.py                         stage dispatch
-  data/                          temporal metadata and shared loaders
-  pretrain/models/alicfm/         migrated original ALI-CFM stages
-  pretrain/models/torchcfm_legacy/ original MNIST teacher architecture
-  pc/                            original Gaussian, HCLT and region PCs
-  distill/                       boundary for unified distillation integration
-  utils/                         configuration, registries and checkpoints
-  legacy/                        original training/evaluation commands
-src/repc/                        compatibility aliases, without duplicate models
-tests/                           baseline and migration regression tests
-scripts/legacy/                  original benchmark launchers
-docs/                            architecture, provenance and legacy usage
-```
-
-Root `train.py`, `eval.py`, endpoint/classifier trainers and summarizers are small
-compatibility entry points for the original commands. Their implementations live
-under `flow2pc.legacy`. No datasets, checkpoints, experiment results or caches are
-required in the code checkout.
-
-## Framework commands
-
-```bash
-python main.py --list-models
-python -m flow2pc.cli --list-datasets
-python main.py --config configs/pretrain/alicfm_cite50.yaml --validate-only
-```
-
-The CITE-50 example reads the existing real data from
-`/data/lthung/ali-cfm-data`. Set `data.root` in your configuration, or use
-`FLOW2PC_DATA_ROOT`. `--validate-only` reads and validates data/configuration
-without training, W&B initialization or run creation.
-
-To explicitly start the configured teacher training:
+ALI-CFM pretraining is available through the existing configuration:
 
 ```bash
 python main.py --config configs/pretrain/alicfm_cite50.yaml
 ```
 
-The migrated ALI-CFM trainer currently supports one CITE/Multi fold per run,
-with its original staged losses and Adam optimizers. New runs fit preprocessing
-on observed training cells only; existing checkpoints retain their original saved
-preprocessing. The manifest records this protocol difference.
-
-MFM, MMFM and OTP-FM are marked unavailable in the **new framework registry**
-until their authentic implementations are migrated. Unified framework distillation
-execution is deferred. The preserved original MNIST commands remain usable:
-
-```bash
-python train.py --help
-python eval.py --help
-```
-
-See [original MNIST usage](docs/legacy/README.md) for its complete commands.
-The original PCs enforce a standard-Gaussian source; a real-data teacher needs an
-explicit source-compatible student and query sampler before unified distillation.
+This command starts training only when explicitly executed. Its outputs are
+self-describing teacher checkpoints, fitted preprocessing and provenance.
+The unified distillation CLI still validates its configuration contract only;
+the runnable CITE-50 teacher/student example is separate follow-up work.
 
 ## Development
 
-```bash
-make test
-make lint
-```
+`make test` and `make lint` are available for explicit use. No training,
+distillation, evaluation or tests were executed during this cleanup, at the
+user's request. The current changes have only received static dependency review.
 
-Tests cover the original baseline, import/class compatibility, source-body parity,
-ALI-CFM staged updates and checkpoint roundtrips. Small generated fixtures are
-test inputs; no research training run is launched by these checks.
-
-[Architecture specification](docs/ARCHITECTURE_SPEC.md) and
-[proposal](README_PROPOSAL.md) describe the intended full framework. Planned
-capabilities are distinct from the integrations currently available.
+The [architecture specification](docs/ARCHITECTURE_SPEC.md) and
+[proposal](README_PROPOSAL.md) describe the broader target. References there to
+old MNIST compatibility are historical and superseded by the current scope.

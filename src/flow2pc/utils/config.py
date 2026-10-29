@@ -117,9 +117,9 @@ def resolve_config(raw, *, base):
             teacher["checkpoint"], base, "teacher.checkpoint"
         )
         student = mapping(config["student"], "student", {"name", "params"}, {"name"})
-        if student["name"] not in ("hclt", "gaussian", "region"):
+        if student["name"] != "hclt":
             raise ValueError(
-                "Unknown student name; contract names: hclt, gaussian, region"
+                "The retained distillation student is hclt"
             )
         if not isinstance(student.setdefault("params", {}), dict):
             raise ValueError("student.params must be a mapping")

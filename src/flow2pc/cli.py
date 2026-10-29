@@ -33,7 +33,7 @@ def main(argv=None):
                 return 0
             raise NotImplementedError(
                 "Framework distillation execution remains a separate migration phase. "
-                "Use train.py distill for the preserved original MNIST pipeline. "
+                "The HCLT and frozen ALI-CFM interfaces remain available. "
                 "This command currently validates the distillation config contract only."
             )
         from flow2pc.pretrain.runner import prepare, run

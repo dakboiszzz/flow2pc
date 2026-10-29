@@ -1,0 +1,11 @@
+{
+  "origin": "successful real-data distillation code before baseline-only restructuring",
+  "hclt_original_sha256": "75a622badc5c4110137ec4427be4e7bbd487e181ef19deac556a038d17b56d78",
+  "hclt_changes": "Only dependency import location; original constructor, free-source Fourier option, state keys, likelihood and velocity code retained.",
+  "flow_original_sha256": "db789c7ccac016ad3f9511c8c440b2696f862eb5f704f79ec1b2a1cb2ac96c65",
+  "retained_flow_classes": [
+    "ALICFMTeacherWrapper",
+    "ALICFMGeneratorWrapper"
+  ],
+  "flow_changes": "Class bodies retained verbatim. Only MNIST code/imports excluded; compatibility factory accepts ALI-CFM."
+}

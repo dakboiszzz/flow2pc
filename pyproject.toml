@@ -12,7 +12,6 @@ dependencies = [
   "PyYAML>=6.0",
   "matplotlib>=3.8",
   "networkx>=3.2",
-  "pyjuice==2.2.0",
   "scipy>=1.15",
   "torch>=2.6",
   "torchcfm==1.0.7",
