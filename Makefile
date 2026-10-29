@@ -2,7 +2,7 @@ PY ?= python
 FLOW_MATCHER ?= ot
 
 lint:
-	$(PY) -m ruff check repc/ tests/ train.py eval.py \
+	$(PY) -m ruff check src/ tests/ main.py train.py eval.py \
 		train_endpoint_hclt.py train_mnist_classifier.py \
 		synthetic_experiment.py summarize_benchmark.py summarize_dense_tuning.py \
 		summarize_synthetic_tuning.py summarize_synthetic_confirmation.py \
@@ -10,7 +10,7 @@ lint:
 		summarize_synthetic_density_weight_trend.py
 
 test:
-	$(PY) -m unittest discover -s tests -v
+	$(PY) -m pytest -q
 
 train-flow:
 	$(PY) train.py flow --flow-matcher $(FLOW_MATCHER)

@@ -4,7 +4,7 @@ from collections import deque
 import torch
 from torch import nn
 
-from repc.pc import ProbabilisticCircuit, discretized_gaussian_log_mass
+from flow2pc.pc.gaussian_pc import ProbabilisticCircuit, discretized_gaussian_log_mass
 
 LOG_2PI = math.log(2.0 * math.pi)
 

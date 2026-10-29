@@ -19,4 +19,4 @@ FLOW2PC_MIN_FREE_MB="${minimum_free_mb}" \
 ENDPOINT_PRETRAINING=em \
 ENDPOINT_EM_EPOCHS=20 \
 TIMESTEP_SAMPLING=uniform \
-  bash scripts/run_endpoint_em_then_distill.sh
+  bash scripts/legacy/run_endpoint_em_then_distill.sh

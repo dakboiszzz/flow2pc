@@ -1,0 +1,144 @@
+"""Strict stage schema; algorithm parameters are validated by their method."""
+
+import copy
+import os
+import re
+from pathlib import Path
+
+import yaml
+
+from flow2pc.data.registry import datasets
+from flow2pc.pretrain.registry import teachers
+
+
+def mapping(value, label, allowed, required=()):
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a mapping")  # noqa: TRY004
+    unknown, missing = set(value) - set(allowed), set(required) - set(value)
+    if unknown or missing:
+        raise ValueError(
+            f"{label}: unknown keys {sorted(unknown)}, missing keys {sorted(missing)}"
+        )
+    return value
+
+
+def expand(value):
+    if isinstance(value, str):
+
+        def replace(match):
+            key = match.group(1)
+            if not os.environ.get(key):
+                raise ValueError(f"Environment variable {key} is unset or empty")
+            return os.environ[key]
+
+        return re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}", replace, value)
+    if isinstance(value, list):
+        return [expand(item) for item in value]
+    if isinstance(value, dict):
+        return {key: expand(item) for key, item in value.items()}
+    return value
+
+
+def resolve_path(value, base, label):
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{label} must be a nonempty path")
+    path = Path(value).expanduser()
+    return str((base / path).resolve() if not path.is_absolute() else path.resolve())
+
+
+def load_config(path):
+    path = Path(path).resolve()
+    with path.open() as handle:
+        return resolve_config(yaml.safe_load(handle), base=path.parent)
+
+
+def resolve_config(raw, *, base):
+    config = expand(copy.deepcopy(raw))
+    mapping(
+        config,
+        "config",
+        {
+            "stage",
+            "seed",
+            "model",
+            "data",
+            "training",
+            "teacher",
+            "student",
+            "distillation",
+            "output",
+            "logging",
+        },
+        {"stage", "output"},
+    )
+    if config["stage"] not in ("pretrain", "distill"):
+        raise ValueError("stage must be pretrain or distill")
+    config["seed"] = config.get("seed", 42)
+    if type(config["seed"]) is not int or not 0 <= config["seed"] < 2**32:
+        raise ValueError("seed must be an integer in [0, 2**32)")
+    output = mapping(config["output"], "output", {"dir"}, {"dir"})
+    output["dir"] = resolve_path(output["dir"], base, "output.dir")
+    logging = mapping(
+        config.setdefault("logging", {}),
+        "logging",
+        {"mode", "project", "entity", "name"},
+    )
+    if logging.setdefault("mode", "disabled") not in ("disabled", "offline", "online"):
+        raise ValueError("logging.mode must be disabled, offline or online")
+    logging.setdefault("project", "flow2pc")
+    if config["stage"] == "pretrain":
+        if {"teacher", "student", "distillation"} & config.keys():
+            raise ValueError("Pretrain cannot contain distillation-stage keys")
+        for key in ("model", "data", "training"):
+            if key not in config:
+                raise ValueError(f"Missing pretrain config key: {key}")
+        model = mapping(config["model"], "model", {"name", "params"}, {"name"})
+        teachers.require(model["name"])
+        if not isinstance(model.setdefault("params", {}), dict):
+            raise ValueError("model.params must be a mapping")
+        data = mapping(config["data"], "data", {"name", "root", "params"}, {"name"})
+        datasets.require(data["name"])
+        if not isinstance(data.setdefault("params", {}), dict):
+            raise ValueError("data.params must be a mapping")
+        fallback = os.environ.get("FLOW2PC_DATA_ROOT", str(Path.cwd() / "data"))
+        data["root"] = resolve_path(data.get("root", fallback), base, "data.root")
+        if not isinstance(config["training"], dict):
+            raise ValueError("training must be a mapping")
+    else:
+        if {"model", "data", "training"} & config.keys():
+            raise ValueError(
+                "Distill data/preprocessing must come from the teacher manifest"
+            )
+        for key in ("teacher", "student", "distillation"):
+            if key not in config:
+                raise ValueError(f"Missing distill config key: {key}")
+        teacher = mapping(config["teacher"], "teacher", {"checkpoint"}, {"checkpoint"})
+        teacher["checkpoint"] = resolve_path(
+            teacher["checkpoint"], base, "teacher.checkpoint"
+        )
+        student = mapping(config["student"], "student", {"name", "params"}, {"name"})
+        if student["name"] not in ("hclt", "gaussian", "region"):
+            raise ValueError(
+                "Unknown student name; contract names: hclt, gaussian, region"
+            )
+        if not isinstance(student.setdefault("params", {}), dict):
+            raise ValueError("student.params must be a mapping")
+        d = mapping(
+            config["distillation"],
+            "distillation",
+            {"sampler", "steps", "batch_size", "lr"},
+            {"sampler", "steps", "batch_size", "lr"},
+        )
+        mapping(d["sampler"], "distillation.sampler", {"name", "params"}, {"name"})
+        if not isinstance(d["sampler"]["name"], str) or not d["sampler"]["name"]:
+            raise ValueError("sampler.name must be a nonempty string")
+        if not isinstance(d["sampler"].setdefault("params", {}), dict):
+            raise ValueError("sampler.params must be a mapping")
+        from math import isfinite
+
+        for key in ("steps", "batch_size"):
+            if type(d[key]) is not int or d[key] < 1:
+                raise ValueError(f"distillation.{key} must be a positive integer")
+        if type(d["lr"]) not in (int, float) or not isfinite(d["lr"]) or d["lr"] <= 0:
+            raise ValueError("distillation.lr must be finite and positive")
+    return config

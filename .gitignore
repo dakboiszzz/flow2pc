@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 .venv/
 __pycache__/
 *.py[cod]
@@ -10,6 +12,15 @@ dist/
 
 /data/
 /outputs/
+/checkpoints/
+/ali-cfm/
+/cache/
+/.cache/
+*.pt
+*.pth
 *.ckpt
+*.h5ad
+*.npy
+*.npz
 wandb/
 lightning_logs/

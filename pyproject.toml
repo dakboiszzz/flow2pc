@@ -9,6 +9,8 @@ description = "Distill a flow-matching model into a time-indexed probabilistic c
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "PyYAML>=6.0",
+  "matplotlib>=3.8",
   "networkx>=3.2",
   "pyjuice==2.2.0",
   "scipy>=1.15",
@@ -20,11 +22,27 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["ruff>=0.11"]
+dev = ["pytest>=8", "ruff>=0.11"]
+single-cell = ["h5py>=3.10", "POT>=0.9"]
+alicfm = ["h5py>=3.10", "POT>=0.9", "pandas>=2.2", "scikit-learn>=1.5"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
-include = ["repc*"]
+where = ["src"]
+include = ["flow2pc*", "repc*"]
+
+[tool.setuptools.package-data]
+"flow2pc.pretrain.models.alicfm" = ["NOTICE.md", "SOURCE_PROVENANCE.json"]
 
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+
+# Preserve upstream scientific source verbatim apart from documented plumbing.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/flow2pc/pretrain/models/alicfm/_source/*.py" = ["ALL"]
