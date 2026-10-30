@@ -7,6 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 from flow2pc.data.base import TemporalMetadata
+from flow2pc.data.preprocessing import fit_all_marginals, transform
 from flow2pc.utils.checkpoint import identity, sha256
 
 
@@ -89,8 +90,16 @@ class SnapshotDataset:
                 }
             self.rows.append(row)
         normalise, whiten = params.get("normalise", True), params.get("whiten", False)
+        protocol = params.get("preprocessing_protocol", "train_affine")
+        if protocol not in ("train_affine", "native_all"):
+            raise ValueError("Unknown preprocessing_protocol")
         if type(normalise) is not bool or type(whiten) is not bool:
             raise ValueError("normalise and whiten must be booleans")
+        if preprocessing is None and protocol == "native_all":
+            preprocessing = fit_all_marginals(
+                torch.cat(self.raw).numpy(), normalise=normalise, whiten=whiten,
+                feature_key=provenance["feature_key"], time_indices=range(len(self.raw)),
+            )
         if preprocessing is None:
             train = torch.cat(
                 [self.raw[i][self.rows[i]["train"]] for i in self.observed]
@@ -104,6 +113,7 @@ class SnapshotDataset:
                     train.mean(0),
                     train.std(0, unbiased=False).clamp_min(1e-12),
                 )
+            metric_shift, metric_scale = shift.clone(), scale.clone()
             if normalise:
                 standardized = (train - shift) / scale
                 lo, hi = standardized.amin(0), standardized.amax(0)
@@ -117,6 +127,8 @@ class SnapshotDataset:
                 "whiten": whiten,
                 "shift": shift.float().tolist(),
                 "scale": scale.float().tolist(),
+                "metric_shift": metric_shift.float().tolist(),
+                "metric_scale": metric_scale.float().tolist(),
                 "feature_key": provenance["feature_key"],
                 "pca_recomputed": False,
             }
@@ -138,7 +150,7 @@ class SnapshotDataset:
             or (self.scale <= 0).any()
         ):
             raise ValueError("Invalid saved affine preprocessing")
-        self.clouds = [(x - self.shift) / self.scale for x in self.raw]
+        self.clouds = [transform(x, self.preprocessing) for x in self.raw]
         self.source = provenance
         self.labels = labels
         self.metadata = TemporalMetadata(
@@ -157,6 +169,8 @@ class SnapshotDataset:
     def get_marginal(self, time_index, split):
         if type(time_index) is not int or time_index not in range(len(self.clouds)):
             raise ValueError("Marginal index outside the recorded time grid")
+        if split == "all":
+            return TensorMarginal(self.clouds[time_index])
         if split not in ("train", "val", "test"):
             raise ValueError("Unknown split")
         return TensorMarginal(self.clouds[time_index][self.rows[time_index][split]])
@@ -191,12 +205,21 @@ class SpatialTranscriptomics(SnapshotDataset):
             "test_fraction",
             "normalise",
             "whiten",
+            "preprocessing_protocol",
         }
         if set(self.params) - allowed:
             raise ValueError(f"Unknown ST params: {set(self.params) - allowed}")
         directory = self.root / "spatial_transcriptomics/aligned/aligned_spots"
         files = [directory / f"U{i}_tumor_coordinates.csv" for i in range(2, 6)]
-        clouds = [np.loadtxt(p, delimiter=",", ndmin=2) for p in files]
+        if self.params.get("preprocessing_protocol") == "native_all":
+            import pandas as pd
+
+            clouds = [
+                np.array(pd.read_csv(p, header=None).iloc[:, -2:].values, dtype=np.float32)
+                for p in files
+            ]
+        else:
+            clouds = [np.loadtxt(p, delimiter=",", ndmin=2) for p in files]
         if any(cloud.shape[1] != 2 for cloud in clouds):
             raise ValueError(
                 "ST tumor coordinate files must have exactly two columns in (y,x) order"
@@ -222,6 +245,7 @@ class CellTracking(SnapshotDataset):
             "test_fraction",
             "normalise",
             "whiten",
+            "preprocessing_protocol",
         }
         if set(self.params) - allowed:
             raise ValueError(

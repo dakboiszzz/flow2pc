@@ -1,0 +1,72 @@
+{
+  "scope": "Recovered ODE evaluation, dataset-specific illustrations and W&B run continuity. Not byte-for-byte restoration of the old CLI.",
+  "sources": [
+    {
+      "original_file": "repc/single_cell_eval.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "71ab302ccae46c333591623b2728ebd7b6a071cdafa546cc6c609ede63236735",
+      "archived_source_sha256": "71ab302ccae46c333591623b2728ebd7b6a071cdafa546cc6c609ede63236735"
+    },
+    {
+      "original_file": "repc/cell_tracking.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "96930fb3bd002f64989f159442f428f070037c5f3db35b7e0c2378ffc6c558de",
+      "archived_source_sha256": "96930fb3bd002f64989f159442f428f070037c5f3db35b7e0c2378ffc6c558de"
+    },
+    {
+      "original_file": "repc/single_cell_tracking.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "d7314bd0edd6ae9f92682cd7df804f922ba0f661f196bea7ca00b84cbde07a41",
+      "archived_source_sha256": "d7314bd0edd6ae9f92682cd7df804f922ba0f661f196bea7ca00b84cbde07a41"
+    },
+    {
+      "original_file": "scripts/evaluate_single_cell.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "ee8cca5f307a1b6e377f64fc4f2e6cdd960b0c74de55b1f335231e2b2777d243",
+      "archived_source_sha256": "ee8cca5f307a1b6e377f64fc4f2e6cdd960b0c74de55b1f335231e2b2777d243"
+    },
+    {
+      "original_file": "scripts/evaluate_st_student.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "042d9a4503a748e6818bb4abacd63090bc3cc4bc6ba539764fcf633c3bdc107b",
+      "archived_source_sha256": "042d9a4503a748e6818bb4abacd63090bc3cc4bc6ba539764fcf633c3bdc107b"
+    },
+    {
+      "original_file": "scripts/plot_knot_student.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "c527c5cf735a6aece71c8df9008e4e5c44328014bce14b2b917bb704fbfd8654",
+      "archived_source_sha256": "c527c5cf735a6aece71c8df9008e4e5c44328014bce14b2b917bb704fbfd8654"
+    },
+    {
+      "original_file": "scripts/train_cell_tracking.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "f9fc748d9ea3faa29ab7b75322450833b71fda330f0ce2f406b1280f9421e286",
+      "archived_source_sha256": "f9fc748d9ea3faa29ab7b75322450833b71fda330f0ce2f406b1280f9421e286"
+    },
+    {
+      "original_file": "scripts/run_single_cell_sweep.py",
+      "git_revision": "f2c6942",
+      "git_source_sha256": "0e88b2f92951501aca5e24ce9e8e7603d6489018e2ba7c6046787cefa472a5c0",
+      "archived_source_sha256": "0e88b2f92951501aca5e24ce9e8e7603d6489018e2ba7c6046787cefa472a5c0"
+    }
+  ],
+  "migrated_to": [
+    "src/flow2pc/evaluation/",
+    "src/flow2pc/pretrain/models/alicfm/trainer.py",
+    "src/flow2pc/distill/runner.py"
+  ],
+  "preserved": [
+    "Uniform-mass W1 with Euclidean ground costs, deterministic population subsets, batched ODE rollouts.",
+    "Teacher/student velocity-driven trajectories from the same empirical initial cells.",
+    "Original tracking display frames, raw pixel overlays, and ST y/x H&E orientation.",
+    "Selected student checkpoint evaluation, W&B metrics/media/artifacts and persisted run ID."
+  ],
+  "explicit_differences": [
+    "No direct-PC sampling or NLL evaluation branches; student training remains velocity MSE only.",
+    "Teacher and student ST predictions are both recomputed under a shared U2 rollout protocol, rather than loading unchecked teacher prediction arrays.",
+    "Classical RK4 includes exact observation times instead of rounding slide times to a coarse step index.",
+    "New artifacts retain train-only preprocessing and save the additional historical metric-space transform.",
+    "Evaluation settings and actual population counts are recorded; old paper-score comparisons require matched preprocessing and rollout protocol."
+  ],
+  "validation": "Static source, lint, syntax and configuration inspection only. No training, distillation, evaluation, plotting or test execution."
+}

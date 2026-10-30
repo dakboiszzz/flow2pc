@@ -2,7 +2,10 @@
 
 The organized package includes teacher profiles and HCLT distillation entry
 points for the datasets below. This migration has received static source review;
-training, checkpoint loading, evaluation and tests have **not** been executed.
+the assistant has not run training, evaluation or tests. The user's saved runs
+are reviewed in [ALICFM_TEACHER_RESULTS_REVIEW.md](ALICFM_TEACHER_RESULTS_REVIEW.md).
+The broader migration differences are recorded in
+[ALICFM_MIGRATION_AUDIT.md](ALICFM_MIGRATION_AUDIT.md).
 
 | Config suffix | Data representation | Teacher implementation |
 | --- | --- | --- |
@@ -20,6 +23,13 @@ remain recorded as labels, with an ordinal model clock. ST slide indices also
 describe an ordered series, not measured elapsed time.
 
 ## Commands prepared for user execution
+
+The native-protocol teacher-only eight-GPU launcher and its review notes are in
+[ALICFM_NATIVE_TEACHERS.md](ALICFM_NATIVE_TEACHERS.md). Use that launcher for the
+new CITE/Multi/ST/tracking comparison runs; it uses a fresh output root and never
+enqueues students. These eight teacher configs now explicitly restore native
+full observed populations and all-time sequential preprocessing. Earlier notes
+below describe the older train-only protocol where stated.
 
 Activate your existing CUDA environment or set `FLOW2PC_PYTHON` to its interpreter.
 Run from this repository. For example:
@@ -82,6 +92,39 @@ normalization before excluding a slide and used all observed rows. Consequently
 this recovers its training method and settings, **not** a bitwise replay of that
 data protocol. New artifacts save the fitted transform, split and source hashes.
 
+## Restored native knot training path (2026-10-30)
+
+`profiles.train_knot` now delegates to `_source/knot_training.py`, recovered from
+the supplied `../ali-cfm/train_teacher.py` at revision `a35963e`. The earlier
+Torch marginal-sampling rewrite has been removed. Training again:
+
+- Generates every complete noisy curve with NumPy, drawing all x noise then all
+  y noise for each curve; builds the full batch before casting it to float32.
+- Selects the GAN interior time with NumPy after constructing that batch, then
+  performs the original discriminator and generator updates in order.
+- Generates fresh full-curve batches for CFM, draws uniform model time on the
+  training device, and uses the original autograd interpolant derivative/MSE.
+- Uses native V/G/D construction order and the original knot discriminator.
+  Existing joined-input velocity adapters and checkpoint state keys remain valid.
+
+The lifted `y2=sin(...)+1` is retained. The example preserves batch 128, widths
+32/128/128, 50,000 GAN and 30,000 CFM updates, Adam rates 0.001/0.001/0.0001 and
+regularizer coefficient 1. These remain explicit settings. All analytic times
+and raw coordinates are required; teacher snapshot subsets/scaling are rejected.
+The dataset's stored sample count and splits do not restrict fresh teacher batches.
+W&B project `flow2pc` and framework checkpoint saving remain in place.
+
+The framework still applies its explicit run seed; the original root trainer did
+not save a seed/RNG history. Restoring its sampling and updates does not recover
+the unknown random state of an earlier successful checkpoint. Evaluation still
+uses the shared configured solver; this change restores **training only**.
+
+`tests/test_knot_recovery.py` prepares native-source sampler equality and short
+CPU optimizer/RNG parity checks. They have **not** been executed. Static AST
+comparison found an identical sampler and identical GAN/CFM update statements
+apart from explicit settings and logging. No training or inference was started,
+and the existing failed checkpoint has not been modified or relabeled.
+
 ## Distillation behavior retained
 
 The HCLT model is the retained real-data implementation, with dense Gaussian
@@ -102,7 +145,10 @@ for checkpoint selection; it contributes no extra gradient loss.
 
 New outputs include resolved configs, source/data/time/preprocessing bindings,
 metrics, and best/last student checkpoints with optimizer, scheduler and RNG
-state. The examples prepare training only; old overlay/evaluation/sweep tools
+state. Both stages now run post-training ODE evaluation and save dataset-specific
+figures. Standalone evaluation is also available. See
+[the recovered evaluation workflow](../EVALUATION_WORKFLOW.md) for commands,
+image filenames and protocol differences. The old parallel sweep schedulers
 have not been restored as part of this migration.
 
 ## Existing checkpoints

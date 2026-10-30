@@ -15,10 +15,16 @@ def main(argv=None):
     action.add_argument("--config")
     action.add_argument("--list-models", action="store_true")
     action.add_argument("--list-datasets", action="store_true")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--validate-only",
         action="store_true",
         help="Resolve config and data metadata without training or writing outputs",
+    )
+    mode.add_argument(
+        "--evaluate",
+        choices=("teacher", "student"),
+        help="Evaluate existing checkpoints and generate figures without training",
     )
     parser.add_argument(
         "--set",
@@ -34,6 +40,11 @@ def main(argv=None):
         return 0
     try:
         config = load_config(args.config, args.set)
+        if args.evaluate:
+            from flow2pc.evaluation.entrypoint import run as evaluate_checkpoint
+
+            print(json.dumps(evaluate_checkpoint(config, args.evaluate), indent=2))
+            return 0
         if config["stage"] == "distill":
             from flow2pc.distill.runner import prepare, run
 
