@@ -5,6 +5,14 @@ from dataclasses import asdict, dataclass
 from typing import Protocol
 
 
+def heldout_indices(dataset):
+    indices = getattr(dataset, "heldout_indices", None)
+    if indices is not None:
+        return list(indices)
+    index = getattr(dataset, "heldout", None)
+    return [] if index is None else [index]
+
+
 def time_grid(values, label):
     if len(values) < 2 or any(
         isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)

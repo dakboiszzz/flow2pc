@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from flow2pc.data.base import heldout_indices
 from flow2pc.evaluation.ode import metric_coordinates, raw_coordinates
 
 TRACKING_FRAMES = (0, 16, 32, 48, 65, 81, 97, 114)
@@ -224,6 +225,48 @@ def save_figures(dataset, teacher_path, student_path, output, settings):
             for axis, (label, path) in zip(axes, models, strict=True):
                 panel(axis, path, label)
             save(fig, "comparison_trajectories", "comparison_trajectories.png")
+    elif name in ("gom", "beijing"):
+        count, columns = len(dataset.clouds), 4
+        raw = [raw_coordinates(x, dataset.preprocessing).numpy() for x in dataset.clouds]
+        for label, path in models:
+            fig, axes = plt.subplots(
+                (count + columns - 1) // columns, columns,
+                figsize=(16, 3.5 * ((count + columns - 1) // columns)), squeeze=False,
+            )
+            for index, axis in enumerate(axes.flat):
+                if index >= count:
+                    axis.axis("off")
+                    continue
+                prediction = raw_coordinates(path[index], dataset.preprocessing).numpy()
+                if name == "beijing":
+                    edges = np.histogram_bin_edges(np.concatenate((raw[index][:, 0], prediction[:, 0])), bins=40)
+                    axis.hist(raw[index][:, 0], bins=edges, density=True, histtype="step", label="Observed")
+                    axis.hist(prediction[:, 0], bins=edges, density=True, histtype="step", label=label)
+                    axis.set(xlabel="PM2.5 (µg/m³)", ylabel="Density")
+                else:
+                    axis.scatter(raw[index][:, 0], raw[index][:, 1], s=8, alpha=0.4, label="Observed")
+                    axis.scatter(prediction[:, 0], prediction[:, 1], s=8, alpha=0.4, label=label)
+                    axis.set(xlabel="Source coordinate 1", ylabel="Source coordinate 2", aspect="equal")
+                suffix = "held out" if index in heldout_indices(dataset) else "observed time"
+                axis.set_title(f"{dataset.labels[index]} | {suffix}")
+            axes[0, 0].legend()
+            fig.suptitle(f"{name.upper()} | {label} velocity-driven ODE from earliest observed population")
+            fig.tight_layout()
+            save(fig, f"{label}_marginals", f"{label}_ode_marginals.png")
+            if name == "beijing":
+                fig, axis = plt.subplots(figsize=(13, 5))
+                for quantile, color in zip((0.1, 0.5, 0.9), ("tab:blue", "tab:orange", "tab:green"), strict=True):
+                    observed = [np.quantile(x[:, 0], quantile) for x in raw]
+                    predicted = [np.quantile(raw_coordinates(x, dataset.preprocessing).numpy()[:, 0], quantile) for x in path]
+                    axis.plot(range(count), observed, "o--", color=color, label=f"Observed q={quantile:g}")
+                    axis.plot(range(count), predicted, "-", color=color, label=f"{label} q={quantile:g}")
+                for index in heldout_indices(dataset):
+                    axis.axvspan(index - 0.15, index + 0.15, color="gray", alpha=0.15)
+                axis.set_xticks(range(count), dataset.labels, rotation=45, ha="right")
+                axis.set(ylabel="PM2.5 (µg/m³)", title="Population quantiles; shaded times held out of teacher training")
+                axis.legend(ncol=3)
+                fig.tight_layout()
+                save(fig, f"{label}_quantiles", f"{label}_quantiles.png")
     else:
         count = (
             len(dataset.clouds)
@@ -257,7 +300,7 @@ def save_figures(dataset, teacher_path, student_path, output, settings):
                 else f"Day {dataset.metadata.physical_times[index]:g}"
             )
             axis.set_title(
-                time_label + (" (held out)" if index == dataset.heldout else "")
+                time_label + (" (held out)" if index in heldout_indices(dataset) else "")
             )
             axis.set_xlabel("Coordinate 1 (metric space)")
 

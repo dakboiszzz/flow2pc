@@ -91,6 +91,20 @@ GPU queue, warm-up memory reservations and bounded workers. See
 [parallel launch instructions](docs/PARALLEL_CHECKS.md) for preview, GPU selection
 and output paths.
 
+For the new Gulf of Mexico and Beijing teacher search, use the
+[1,024-run ALI-CFM transport sweep](docs/ALICFM_TRANSPORT_SWEEP.md):
+
+```bash
+bash scripts/run_alicfm_transport_sweep_8gpu.sh --dry-run
+bash scripts/run_alicfm_transport_sweep_8gpu.sh
+```
+
+It prepares 512 configs per dataset, uses eight GPUs with bounded parallel workers,
+logs to W&B `flow2pc`, and saves per-run figures plus dataset-specific rankings
+under `/data/lthung/flow2pc/alicfm-transport/sweep-512`. These are new dataset
+adaptations using the existing ALI-CFM stages; numerical behavior is unverified
+until training is run.
+
 ## Development
 
 `make test` and `make lint` are available for explicit use. No training,

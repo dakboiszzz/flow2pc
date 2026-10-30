@@ -18,7 +18,7 @@ from flow2pc.pretrain.models.alicfm.model import (
 
 
 def profile_for(name):
-    if name in ("cite", "multi", "eb"):
+    if name in ("cite", "multi", "eb", "gom", "beijing"):
         return "single_cell"
     if name in ("st", "cell_tracking", "knot"):
         return name

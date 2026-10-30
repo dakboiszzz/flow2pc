@@ -1,5 +1,10 @@
 # Native ALI-CFM teacher runs on eight GPUs
 
+Completed native controls now verify exact training-loss and final model-weight
+parity for all six single-cell recipes and ST, seed 42 / first fold. See the
+[completed comparison and native failure diagnosis](ALICFM_NATIVE_PARITY_RESULTS.md).
+The static-only notes below describe preparation before those user-run controls.
+
 This prepares eight independent Flow2PC teacher jobs: CITE5/50/100,
 Multi5/50/100, ST and cell-tracking. Each new worker is assigned a different GPU;
 there is no distributed-loss rewrite and no automatic student stage.

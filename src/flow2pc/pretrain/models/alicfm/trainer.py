@@ -10,7 +10,7 @@ import math
 import os
 import random
 import subprocess
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from uuid import uuid4
 
@@ -65,6 +65,12 @@ class MethodConfig(dict):
 
 class LocalLogger:
     def __init__(self, directory, config, append=False):
+        self.directory = Path(directory)
+        self.mode = config["logging"]["mode"]
+        self.resilient = config.get("training", {}).get("protocol") == "marginal"
+        self.tracking_errors = []
+        self.offline = False
+        self._finish_run = None
         self.handle = (directory / "metrics.jsonl").open("a" if append else "w")
         self.run = None
         try:
@@ -73,6 +79,7 @@ class LocalLogger:
 
                 metadata_path = directory / "wandb_run.json"
                 tracking = dict(config["logging"])
+                self.offline = tracking["mode"] == "offline"
                 if metadata_path.is_file():
                     metadata = json.loads(metadata_path.read_text())
                     if metadata["project"] != tracking.get("project", "flow2pc") or (
@@ -107,16 +114,58 @@ class LocalLogger:
                         path.parent.mkdir(parents=True, exist_ok=True)
                         handle = stack.enter_context(path.open("a"))
                         fcntl.flock(handle, fcntl.LOCK_EX)
-                    self.run = wandb.init(
-                        **tracking, id=metadata["id"], config=config, dir=str(directory)
-                    )
+                    try:
+                        self.run = wandb.init(
+                            **tracking, id=metadata["id"], config=config, dir=str(directory)
+                        )
+                    except (wandb.errors.CommError, TimeoutError, ConnectionError) as error:
+                        if not self.resilient:
+                            raise
+                        self.tracking_failed("online startup", error)
+                        # Keep full SDK history/media/artifacts locally when the
+                        # remote service is unavailable. Sync it later explicitly.
+                        fallback = {k: v for k, v in tracking.items() if k != "resume"}
+                        fallback["mode"] = "offline"
+                        self.offline = True
+                        try:
+                            self.run = wandb.init(**fallback, id=metadata["id"], config=config, dir=str(directory))
+                        except (wandb.errors.CommError, TimeoutError, ConnectionError) as offline_error:
+                            self.tracking_failed("offline startup", offline_error)
+                self._finish_run = self.run
                 atomic_json(
                     metadata_path,
-                    {**metadata, "url": self.run.url, "entity": self.run.entity},
+                    {**metadata, "url": self.run.url if self.run is not None else None,
+                     "entity": self.run.entity if self.run is not None else metadata.get("entity")},
                 )
+                self.write_tracking_status()
         except BaseException:
             self.handle.close()
             raise
+
+    def write_tracking_status(self):
+        if self.resilient:
+            atomic_json(self.directory / "tracking_status.json", {
+                "status": ("disabled" if self.mode == "disabled" else
+                           "pending_sync" if self.tracking_errors or self.offline else "online"),
+                "offline": self.offline, "errors": self.tracking_errors,
+            })
+
+    def tracking_failed(self, operation, error):
+        self.tracking_errors.append({"operation": operation, "error": str(error)})
+        self.write_tracking_status()
+
+    @contextmanager
+    def remote(self, operation):
+        import wandb
+
+        try:
+            yield
+        except (wandb.errors.CommError, TimeoutError, ConnectionError) as error:
+            if not self.resilient:
+                raise
+            self.tracking_failed(operation, error)
+            # Further local writes must not repeatedly wait on a failed API.
+            self.run = None
 
     def log(self, row):
         if any(
@@ -126,12 +175,15 @@ class LocalLogger:
         self.handle.write(json.dumps(row, allow_nan=False) + "\n")
         self.handle.flush()
         if self.run is not None:
-            self.run.log(row)
+            with self.remote("scalar logging"):
+                self.run.log(row)
 
     def close(self, failed=False):
         self.handle.close()
-        if self.run is not None:
-            self.run.finish(exit_code=1 if failed else 0)
+        if self._finish_run is not None:
+            with self.remote("finish"):
+                self._finish_run.finish(exit_code=1 if failed else 0)
+        self.write_tracking_status()
 
 
 class ALICFM:
@@ -203,8 +255,13 @@ class ALICFM:
             raise ValueError("Unsupported ALI-CFM coupling")
         profile = profile_for(config["data"]["name"])
         protocol = train.get("protocol", "framework")
-        if protocol not in ("framework", "native"):
+        if protocol not in ("framework", "native", "marginal"):
             raise ValueError("Unknown ALI-CFM training protocol")
+        if protocol == "marginal":
+            if config["data"]["name"] not in ("gom", "beijing"):
+                raise ValueError("The marginal adaptation is for GOM/Beijing")
+            if config["data"]["params"].get("preprocessing_protocol") != "native_all":
+                raise ValueError("Marginal adaptation requires native_all preprocessing")
         if protocol == "native":
             if config["data"]["name"] not in ("cite", "multi", "st", "cell_tracking"):
                 raise ValueError("Native real-data protocol supports CITE/Multi/ST/tracking")
@@ -307,10 +364,10 @@ class ALICFM:
         cfg.dim = dataset.dim
         cfg.profile = profile_for(dataset.metadata.name)
         cfg.cfm_coordinates = cfg.get("cfm_coordinates", "model")
-        native = cfg.get("protocol") == "native"
+        native = cfg.get("protocol") in ("native", "marginal")
         ot_sampler = OTPlanSampler("exact", reg=0.1) if native else None
         plot_function = None
-        if native and cfg.profile != "cell_tracking":
+        if cfg.get("protocol") == "native" and cfg.profile != "cell_tracking":
             from flow2pc.pretrain.models.alicfm.training_plots import native_plot_function
 
             plot_function = native_plot_function(dataset, config.get("evaluation", {}))
@@ -444,7 +501,9 @@ class ALICFM:
                     "knot; native_full_curve_numpy_batches; raw_coordinates; GAN_then_CFM"
                     if cfg.profile == "knot"
                     else (
-                        f"one_fold; {cfg.profile}; native_observed_pools; native_sequential_preprocessing; native_callbacks"
+                        ("adapted_transport; full_observed_pools; all_marginal_standardization; original_ALI_stages; final_figures_only"
+                         if cfg.get("protocol") == "marginal" else
+                         f"one_fold; {cfg.profile}; native_observed_pools; native_sequential_preprocessing; native_callbacks")
                         if native else f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages"
                     )
                 ),
@@ -460,8 +519,9 @@ class ALICFM:
                     "observed_indices": dataset.observed,
                     "training_counts": [len(clouds[i]) for i in dataset.observed],
                     "scaler_fit_scope": "all marginals including held-out time",
-                    "gan_plot_frequency": 0 if cfg.profile == "cell_tracking" else 5000,
-                    "fold_seed_scope": "one seeded fold; defaults use the first native fold",
+                    "gan_plot_frequency": 5000 if plot_function is not None else 0,
+                    "fold_seed_scope": ("fixed multiple temporal holdouts; one seed" if cfg.get("protocol") == "marginal"
+                                        else "one seeded fold; defaults use the first native fold"),
                 }
             if cfg.profile == "knot":
                 manifest["training_sampling"] = {
@@ -516,7 +576,8 @@ class ALICFM:
                     "resolved_config.yaml",
                 ):
                     artifact.add_file(str(run_dir / name))
-                logger.run.log_artifact(artifact)
+                with logger.remote("teacher artifact upload"):
+                    logger.run.log_artifact(artifact)
             logger.close()
             logger = None
             atomic_json(run_dir / "status.json", {"status": "complete"})
@@ -562,7 +623,7 @@ class ALICFM:
             ali_cfg,
             logger=logger,
         )
-        native = cfg.get("protocol") == "native"
+        native = cfg.get("protocol") in ("native", "marginal")
         plot_kwargs = {"plot_freaquency": 0}
         if plot_function is not None:
             from flow2pc.pretrain.models.alicfm.training_plots import bind_logger

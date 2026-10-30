@@ -2,11 +2,13 @@
 
 import csv
 import hashlib
+from contextlib import nullcontext
 from pathlib import Path
 
 import numpy as np
 import torch
 
+from flow2pc.data.base import heldout_indices
 from flow2pc.evaluation.figures import TRACKING_FRAMES, save_figures, validate_resources
 from flow2pc.evaluation.ode import (
     emd,
@@ -158,7 +160,7 @@ def evaluate(
                 "index": index,
                 "physical_time": dataset.metadata.physical_times[index],
                 "model_time": float(times[index]),
-                "held_out": index == dataset.heldout,
+                "held_out": index in heldout_indices(dataset),
                 "num_reference": len(real),
                 "num_predicted": len(predicted_teacher),
                 "teacher_emd": emd(real, predicted_teacher),
@@ -189,9 +191,10 @@ def evaluate(
             ),
             "teacher_ode_nfe": teacher_nfe,
         }
-        heldout = next((row for row in rows if row["held_out"]), None)
+        heldout_rows = [row for row in rows if row["held_out"]]
+        heldout = next(iter(heldout_rows), None)
         if heldout is not None:
-            scalars["teacher_heldout_emd"] = heldout["teacher_emd"]
+            scalars["teacher_heldout_emd"] = float(np.mean([r["teacher_emd"] for r in heldout_rows]))
         if student_path is not None:
             difference = raw_coordinates(
                 student_path, dataset.preprocessing
@@ -213,7 +216,7 @@ def evaluate(
                 student_ode_nfe=student_nfe,
             )
             if heldout is not None:
-                scalars["student_heldout_emd"] = heldout["student_emd"]
+                scalars["student_heldout_emd"] = float(np.mean([r["student_emd"] for r in heldout_rows]))
         if checkpoint_step is not None:
             scalars["checkpoint_step"] = checkpoint_step
         result = {
@@ -235,6 +238,10 @@ def evaluate(
             output / "media.json",
             {key: str(path.resolve()) for key, path in figures.items()},
         )
+        # Local computation is complete before optional remote publication.
+        atomic_json(
+            output / "status.json", {"status": "complete", "binding_sha256": binding}
+        )
         if logger is not None:
             logger.log(
                 {
@@ -244,52 +251,35 @@ def evaluate(
                 }
             )
             if logger.run is not None:
-                import wandb
-
-                logger.run.log(
-                    {
-                        "eval/marginal_metrics": wandb.Table(
-                            columns=list(rows[0]),
-                            data=[list(row.values()) for row in rows],
-                        ),
-                        **{
-                            f"eval/{key}": wandb.Image(str(path))
-                            for key, path in figures.items()
-                        },
-                        **{
-                            f"eval/marginal_{row['index']}/{key}": value
-                            for row in rows
-                            for key, value in row.items()
-                            if key.endswith("emd")
-                        },
-                    }
-                )
-                logger.run.summary.update(
-                    {
-                        f"eval/{key}": value
-                        for key, value in scalars.items()
-                        if value is not None
-                    }
-                )
-                artifact = wandb.Artifact(
-                    f"{logger.run.id}-evaluation", type="evaluation"
-                )
-                artifacts = [
-                    output / "metrics.json",
-                    output / "marginal_metrics.csv",
-                    output / "media.json",
-                    output / "teacher_predictions.pt",
-                    *figures.values(),
-                ]
-                if (output / "predictions.pt").is_file():
-                    artifacts.append(output / "predictions.pt")
-                for path in artifacts:
-                    artifact.add_file(str(path))
-                logger.run.log_artifact(artifact)
-        atomic_json(
-            output / "status.json", {"status": "complete", "binding_sha256": binding}
-        )
+                # Already-running teachers may hold the earlier logger class.
+                guard = logger.remote("evaluation publication") if hasattr(logger, "remote") else nullcontext()
+                with guard:
+                    publish_evaluation(logger.run, rows, scalars, figures, output)
         return result
     except BaseException as error:
         atomic_json(output / "status.json", {"status": "failed", "error": str(error)})
         raise
+
+
+def publish_evaluation(run, rows, scalars, figures, output):
+    """Publish already-saved evaluation outputs; no model/data execution."""
+    output = Path(output)
+    if run is None:
+        return
+    import wandb
+
+    run.log({
+        "eval/marginal_metrics": wandb.Table(columns=list(rows[0]), data=[list(row.values()) for row in rows]),
+        **{f"eval/{key}": wandb.Image(str(path)) for key, path in figures.items()},
+        **{f"eval/marginal_{row['index']}/{key}": value for row in rows
+           for key, value in row.items() if key.endswith("emd")},
+    })
+    run.summary.update({f"eval/{key}": value for key, value in scalars.items() if value is not None})
+    artifact = wandb.Artifact(f"{run.id}-evaluation", type="evaluation")
+    artifacts = [output / "metrics.json", output / "marginal_metrics.csv",
+                 output / "media.json", output / "teacher_predictions.pt", *figures.values()]
+    if (output / "predictions.pt").is_file():
+        artifacts.append(output / "predictions.pt")
+    for path in artifacts:
+        artifact.add_file(str(path))
+    run.log_artifact(artifact)
