@@ -98,6 +98,8 @@ WORKERS_PER_GPU=2 MAX_PARALLEL=16 MIN_FREE_GB=4 \
 
 Environment overrides: `FLOW2PC_PYTHON`, `OTP_FM_DATA_ROOT`, `ALICFM_SWEEP_ROOT`,
 `GPUS`, `WORKERS_PER_GPU`, `MAX_PARALLEL`, `CPU_THREADS_PER_RUN`, `MIN_FREE_GB`.
+`MIN_DISK_FREE_GB` defaults to 20 GiB on the output filesystem. It controls
+admission of new workers separately from the GPU memory threshold.
 The default Python is `/data/nvidia/conda_envs/uffm/bin/python`. Additional CLI
 arguments pass through, including `--datasets gom` or `--datasets beijing`.
 
@@ -111,6 +113,9 @@ summary.csv                           all runs and hyperparameters/status/EMD
 _configs/<dataset>/<run>.yaml          generated worker configs
 _launcher/status.json                  running worker PIDs/GPUs and queue counts
 _launcher/logs/<run>.log               worker stdout/stderr
+_runtime/tmp/                        new workers' temporary files (TMPDIR/TMP/TEMP)
+_runtime/wandb-cache/                shared SDK cache for this sweep
+_runtime/wandb-staging/              SDK artifact staging for this sweep
 gom/summary.csv                       dataset-specific results
 gom/best_models.json                  top 10 completed teachers
 gom/<run>/checkpoints/last.pt          final teacher/interpolant/optimizer states
@@ -185,6 +190,33 @@ controller has stopped, rebuild summaries without training/evaluation using:
 ```bash
 bash scripts/run_alicfm_transport_sweep_8gpu.sh --summarize-only
 ```
+
+### Recovery after a full filesystem
+
+An ENOSPC or quota error while updating derived CSV/ranking/status reports no
+longer aborts the controller or stops its active workers. Report writes retry
+periodically; the previous CSV remains intact if replacement fails. Launch-time
+storage errors also defer the affected job without terminating other workers.
+New launches pause below `--min-disk-free-gb` (default 20 GiB) and resume after
+space is available. Workers already running continue; this admission threshold
+does not reserve filesystem space against other users' jobs.
+
+New worker temporary files and W&B cache/staging use `_runtime/` on the monitored
+output filesystem rather than `/tmp` or the home cache. Existing global caches
+and results are not removed or moved.
+
+The 2026-11-01 incident left 276 completed teachers, one saved teacher needing
+evaluation-only recovery, and eight interrupted attempts without final weights.
+Recover using the same root and original training budgets:
+
+```bash
+bash scripts/run_alicfm_transport_sweep_8gpu.sh --dry-run --retry-incomplete
+bash scripts/run_alicfm_transport_sweep_8gpu.sh --retry-incomplete
+```
+
+This reuses all completed teachers, reevaluates the saved teacher whose evaluation
+ran out of `/tmp` space, and archives/restarts only incomplete training attempts.
+The dry-run reads metadata only. Restarting training/evaluation is left to the user.
 
 ## Validation limits
 

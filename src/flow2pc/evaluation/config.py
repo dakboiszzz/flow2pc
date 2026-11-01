@@ -19,9 +19,11 @@ DEFAULTS = dict(
 
 
 def resolve_evaluation(value):
-    if not isinstance(value, dict) or set(value) - set(DEFAULTS) - {"image_dir"}:
+    if not isinstance(value, dict) or set(value) - set(DEFAULTS) - {"image_dir", "protocol"}:
         raise ValueError("Unknown evaluation settings")
     result = {**DEFAULTS, **value}
+    if "protocol" in value and value["protocol"] not in ("shared_ode", "native_otpfm"):
+        raise ValueError("Unknown evaluation.protocol")
     if type(result["enabled"]) is not bool:
         raise ValueError("evaluation.enabled must be boolean")
     for key in (

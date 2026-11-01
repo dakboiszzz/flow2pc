@@ -13,6 +13,7 @@ src/flow2pc/
   pc/base.py                    shared circuit interface
   pc/gaussian_pc.py             helpers imported by the HCLT implementation
   pretrain/models/alicfm/       ALI-CFM networks, training and frozen adapters
+  pretrain/models/otpfm/        original OTP-FM, dataset profiles and frozen adapter
   data/                        real-data loaders and time metadata
   utils/                       configuration, checkpoints and provenance
   distill/                     unified distillation integration boundary
@@ -104,6 +105,24 @@ logs to W&B `flow2pc`, and saves per-run figures plus dataset-specific rankings
 under `/data/lthung/flow2pc/alicfm-transport/sweep-512`. These are new dataset
 adaptations using the existing ALI-CFM stages; numerical behavior is unverified
 until training is run.
+
+OTP-FM uses a shared model/trainer/adapter with dataset profiles; GOM and Beijing
+are the first supported datasets. To prepare and run native-versus-migrated
+teacher checks across eight GPUs:
+
+```bash
+bash scripts/run_otpfm_checks_8gpu.sh --backend native --dry-run
+bash scripts/run_otpfm_checks_8gpu.sh --backend native
+bash scripts/run_otpfm_checks_8gpu.sh --backend migrated
+python scripts/compare_otpfm_runs.py
+```
+
+Each batch has eight teachers: two datasets, W2/W2Inf and seeds 42/43. Results and
+best/final figures go under `/data/lthung/flow2pc/otp-fm/migration-check`, with
+W&B project `flow2pc`. Numerical parity awaits these runs. OTP-FM's conditional
+PC sampler is a separate, pending integration. See the
+[OTP-FM migration notes](docs/OTP_FM_MIGRATION.md) for configuration, outputs,
+native evaluation semantics and dataset extension points.
 
 ## Development
 

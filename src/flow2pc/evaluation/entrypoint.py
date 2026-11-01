@@ -11,6 +11,14 @@ from flow2pc.utils.checkpoint import atomic_json
 
 
 def run(config, role):
+    if config.get("evaluation", {}).get("protocol") == "native_otpfm":
+        if role != "teacher" or config["stage"] != "pretrain" or config["model"]["name"] != "otpfm":
+            raise ValueError("Native OTP-FM evaluation requires an OTP-FM pretrain config and teacher role")
+        from flow2pc.pretrain.models.otpfm.evaluation import evaluate_checkpoint
+
+        return evaluate_checkpoint(config)
+    if config.get("model", {}).get("name") == "otpfm":
+        raise ValueError("Use evaluation.protocol=native_otpfm for the migrated OTP-FM CLI; shared diagonal-ODE diagnostics are a separate protocol")
     if config["stage"] == "pretrain":
         if role != "teacher":
             raise ValueError("Student evaluation requires its distill config")

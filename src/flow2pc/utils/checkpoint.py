@@ -86,14 +86,16 @@ def validate_manifest(manifest):
     return metadata
 
 
-def save_teacher(run_dir, payload, manifest, preprocessing):
+def save_teacher(run_dir, payload, manifest, preprocessing, *, checkpoint_name="last"):
+    if checkpoint_name not in ("last", "best"):
+        raise ValueError("Teacher checkpoint_name must be last or best")
     run_dir = Path(run_dir)
     atomic_json(run_dir / "preprocessing.json", preprocessing)
     manifest = dict(manifest)
     manifest.update(
         schema_version=1,
         artifact_type="teacher",
-        checkpoint_relpath="checkpoints/last.pt",
+        checkpoint_relpath=f"checkpoints/{checkpoint_name}.pt",
         preprocessing_file="preprocessing.json",
         preprocessing_sha256=sha256(run_dir / "preprocessing.json"),
     )

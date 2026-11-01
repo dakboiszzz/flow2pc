@@ -10,6 +10,7 @@ from collections import deque
 import copy
 import csv
 from dataclasses import dataclass, field
+import errno
 import fcntl
 import hashlib
 import io
@@ -19,6 +20,7 @@ import math
 import os
 from pathlib import Path
 import random
+import shutil
 import signal
 import subprocess
 import sys
@@ -220,8 +222,11 @@ def summary(args, runs, active, state):
         writer.writeheader()
         writer.writerows(selected)
         temporary = path.with_suffix(".csv.tmp")
-        temporary.write_text(stream.getvalue())
-        temporary.replace(path)
+        try:
+            temporary.write_text(stream.getvalue())
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
     write_csv(args.output_root / "summary.csv", rows)
     for dataset in args.datasets:
         selected = [row for row in rows if row["dataset"] == dataset]
@@ -241,6 +246,65 @@ def summary(args, runs, active, state):
     })
 
 
+def storage_error(error):
+    return isinstance(error, OSError) and error.errno in (errno.ENOSPC, errno.EDQUOT)
+
+
+def try_summary(args, runs, active, state):
+    """Derived reports must not terminate workers when their filesystem fills."""
+    try:
+        summary(args, runs, active, state)
+    except OSError as error:
+        if not storage_error(error):
+            raise
+        print(f"Storage full: summary update deferred; active workers retained: {error}", file=sys.stderr, flush=True)
+        return False
+    return True
+
+
+def worker_environment(args, device):
+    # The root filesystem's /tmp also filled during this sweep. Keep new worker
+    # temporary files and W&B staging/cache on the monitored output filesystem.
+    runtime = args.output_root / "_runtime"
+    directories = {"TMPDIR": runtime / "tmp", "WANDB_CACHE_DIR": runtime / "wandb-cache",
+                   "WANDB_DATA_DIR": runtime / "wandb-staging"}
+    for path in directories.values():
+        path.mkdir(parents=True, exist_ok=True)
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "src"),
+           "CUDA_VISIBLE_DEVICES": device["uuid"], "CUDA_DEVICE_ORDER": "PCI_BUS_ID",
+           "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads),
+           "OPENBLAS_NUM_THREADS": str(args.threads), "NUMEXPR_NUM_THREADS": str(args.threads),
+           "MPLBACKEND": "Agg", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1",
+           "FLOW2PC_WANDB_INIT_LOCK": str(args.output_root / ".wandb-init.lock"),
+           **{key: str(path) for key, path in directories.items()}}
+    env.update(TMP=env["TMPDIR"], TEMP=env["TMPDIR"])
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    for key in ("WANDB_RUN_ID", "WANDB_NAME", "WANDB_RESUME"):
+        env.pop(key, None)
+    return env
+
+
+def start_worker(args, task, device, inventory, lock):
+    if task.action == "restart":
+        archive_incomplete(task)
+        task.action, task.error = "pretrain", ""
+    config_path = args.output_root / "_configs" / task.dataset / f"{task.name}.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(yaml.safe_dump(task.config, sort_keys=False))
+    log_path = args.output_root / "_launcher/logs" / f"{task.name}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = worker_environment(args, inventory[device])
+    log = log_path.open("a")
+    try:
+        process = subprocess.Popen(command_for(task, config_path), cwd=ROOT, env=env,
+                                   stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
+                                   pass_fds=(lock.fileno(),))
+    except BaseException:
+        log.close()
+        raise
+    return dict(task=task, device=device, process=process, log=log, started=time.monotonic())
+
+
 def run_queue(args, runs, devices, lock):
     pending = deque(run for run in runs if run.status == "pending")
     active, interrupted, previous, cooldown = [], False, {}, {}
@@ -250,6 +314,7 @@ def run_queue(args, runs, devices, lock):
     for sig in (signal.SIGINT, signal.SIGTERM):
         previous[sig] = signal.signal(sig, stop)
     next_summary = 0.0
+    storage_retry_after, storage_warned = 0.0, False
     try:
         while pending or active:
             if interrupted:
@@ -287,7 +352,17 @@ def run_queue(args, runs, devices, lock):
                 time.sleep(5)
                 continue
             free = {d: inventory[d]["free"] if time.monotonic() >= cooldown.get(d, 0) else 0 for d in devices}
-            while pending:
+            disk_free_gb = shutil.disk_usage(args.output_root).free / 2**30
+            storage_ready = disk_free_gb >= args.min_disk_free_gb and time.monotonic() >= storage_retry_after
+            if pending and not storage_ready and not storage_warned:
+                print(f"Pausing new launches: {disk_free_gb:.1f} GiB free; require {args.min_disk_free_gb:g} GiB and no recent storage-write failure. Existing workers continue.", file=sys.stderr, flush=True)
+                storage_warned = True
+            elif storage_ready:
+                storage_warned = False
+            while pending and storage_ready:
+                if shutil.disk_usage(args.output_root).free / 2**30 < args.min_disk_free_gb:
+                    storage_ready = False
+                    break
                 device = choose_device(devices, active, free, args.workers_per_gpu, args.min_free_gb, time.monotonic())
                 if device is None or len(active) >= args.max_parallel:
                     break
@@ -295,37 +370,23 @@ def run_queue(args, runs, devices, lock):
                 if task is None:
                     break
                 pending.remove(task)
-                if task.action == "restart":
-                    archive_incomplete(task)
-                    task.action, task.error = "pretrain", ""
-                config_path = args.output_root / "_configs" / task.dataset / f"{task.name}.yaml"
-                config_path.parent.mkdir(parents=True, exist_ok=True)
-                config_path.write_text(yaml.safe_dump(task.config, sort_keys=False))
-                log_path = args.output_root / "_launcher/logs" / f"{task.name}.log"
-                log_path.parent.mkdir(parents=True, exist_ok=True)
-                log = log_path.open("a")
-                env = {**os.environ, "PYTHONPATH": str(ROOT / "src"),
-                       "CUDA_VISIBLE_DEVICES": inventory[device]["uuid"], "CUDA_DEVICE_ORDER": "PCI_BUS_ID",
-                       "OMP_NUM_THREADS": str(args.threads), "MKL_NUM_THREADS": str(args.threads),
-                       "OPENBLAS_NUM_THREADS": str(args.threads), "NUMEXPR_NUM_THREADS": str(args.threads),
-                       "MPLBACKEND": "Agg", "PYTHONUNBUFFERED": "1", "PYTHONDONTWRITEBYTECODE": "1",
-                       "FLOW2PC_WANDB_INIT_LOCK": str(args.output_root / ".wandb-init.lock")}
-                env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-                for key in ("WANDB_RUN_ID", "WANDB_NAME", "WANDB_RESUME"):
-                    env.pop(key, None)
                 try:
-                    process = subprocess.Popen(command_for(task, config_path), cwd=ROOT, env=env,
-                                               stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                                               pass_fds=(lock.fileno(),))
-                except BaseException:
-                    log.close()
-                    raise
+                    worker = start_worker(args, task, device, inventory, lock)
+                except OSError as error:
+                    if not storage_error(error):
+                        raise
+                    pending.appendleft(task)
+                    storage_retry_after = time.monotonic() + 30
+                    storage_ready = False
+                    print(f"Storage full: launch deferred; active workers retained: {error}", file=sys.stderr, flush=True)
+                    break
                 task.status = "running"
-                active.append(dict(task=task, device=device, process=process, log=log, started=time.monotonic()))
-                print(f"Started {task.action}: {task.name}, GPU {device}, pid {process.pid}", flush=True)
+                active.append(worker)
+                print(f"Started {task.action}: {task.name}, GPU {device}, pid {worker['process'].pid}", flush=True)
                 next_summary = 0.0
             if time.monotonic() >= next_summary:
-                summary(args, runs, active, "running")
+                if not try_summary(args, runs, active, "running" if storage_ready else "waiting_for_disk"):
+                    storage_retry_after = time.monotonic() + 30
                 next_summary = time.monotonic() + 30
             time.sleep(2)
     finally:
@@ -336,7 +397,7 @@ def run_queue(args, runs, devices, lock):
                 worker["task"].status = "pending"
         for sig, handler in previous.items():
             signal.signal(sig, handler)
-        summary(args, runs, [], "interrupted" if interrupted else "aborted" if aborted else "finished")
+        try_summary(args, runs, [], "interrupted" if interrupted else "aborted" if aborted else "finished")
     return 130 if interrupted else (1 if any(r.status in ("failed", "blocked") for r in runs) else 0)
 
 
@@ -349,6 +410,7 @@ def main(argv=None):
     parser.add_argument("--workers-per-gpu", type=int, default=1)
     parser.add_argument("--max-parallel", type=int, default=8)
     parser.add_argument("--min-free-gb", type=float, default=4)
+    parser.add_argument("--min-disk-free-gb", type=float, default=20, help="Pause new workers below this many GiB free on the output filesystem")
     parser.add_argument("--worker-retries", type=int, default=1)
     parser.add_argument("--retry-incomplete", action="store_true", help="Preserve partial runs in _attempts before retraining; never overwrite final checkpoints")
     parser.add_argument("--threads", type=int, default=4)
@@ -362,7 +424,8 @@ def main(argv=None):
     if (len(set(args.datasets)) != len(args.datasets) or args.workers_per_gpu < 1
             or args.max_parallel < 2 or args.threads < 1 or args.pretrain_steps < 0
             or min(args.gan_steps, args.cfm_steps) < 1 or not 0 <= args.seed < 2**32
-            or args.worker_retries < 0 or not math.isfinite(args.min_free_gb) or args.min_free_gb <= 0):
+            or args.worker_retries < 0 or not math.isfinite(args.min_free_gb) or args.min_free_gb <= 0
+            or not math.isfinite(args.min_disk_free_gb) or args.min_disk_free_gb <= 0):
         parser.error("Invalid sweep, seed, memory or concurrency settings")
     args.data_root, args.output_root = args.data_root.resolve(), args.output_root.resolve()
     headers = {name: data_headers(args.data_root, name) for name in args.datasets}
@@ -376,6 +439,8 @@ def main(argv=None):
                      "runs_per_dataset": 512, "grid": GRID, "data": headers,
                      "gpus": devices, "workers_per_gpu": args.workers_per_gpu,
                      "max_parallel": args.max_parallel, "output_root": str(args.output_root),
+                     "min_disk_free_gb": args.min_disk_free_gb,
+                     "worker_runtime_dir": str(args.output_root / "_runtime"),
                      "project": "flow2pc", "preview_names": [r.name for r in runs[:4]],
                      "counts": {s: sum(r.status == s for r in runs) for s in ("pending", "complete", "blocked")}}, indent=2), flush=True)
     if args.dry_run:

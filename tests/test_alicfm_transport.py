@@ -1,6 +1,8 @@
 """Transport loader/sweep regressions; execute only with explicit authorization."""
 
 import importlib.util
+import errno
+import io
 import json
 from pathlib import Path
 import sys
@@ -213,3 +215,66 @@ def test_restart_preserves_incomplete_attempt(tmp_path, monkeypatch):
     paths = list((tmp_path / "_attempts/gom/fixture").glob("*/metrics.jsonl"))
     assert len(paths) == 1 and paths[0].read_text() == "original partial metrics\n"
     assert not output.exists()
+
+
+@pytest.fixture
+def sweep_module(monkeypatch):
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location("_transport_storage_contract", ROOT / "scripts/run_alicfm_transport_sweep.py")
+    module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_summary_disk_full_does_not_stop_active_worker(tmp_path, monkeypatch, sweep_module):
+    module = sweep_module
+    args = SimpleNamespace(output_root=tmp_path, min_disk_free_gb=20,
+                           workers_per_gpu=1, min_free_gb=4, max_parallel=8)
+    run = module.Run("gom", "fixture", {}, tmp_path / "fixture", {})
+    stopped, reports = [], []
+    class Process:
+        pid = 123
+        polls = 0
+
+        def poll(self):
+            self.polls += 1
+            return 0 if self.polls >= 2 else None
+
+    process = Process()
+    def full_summary(*args):
+        reports.append(args[-1])
+        raise OSError(errno.ENOSPC, "filesystem full")
+    def completed(task):
+        task.status = "complete"
+    monkeypatch.setattr(module, "summary", full_summary)
+    monkeypatch.setattr(module, "inspect_run", completed)
+    monkeypatch.setattr(module, "start_worker", lambda *args: dict(
+        task=run, device="0", process=process, log=io.StringIO(), started=0))
+    monkeypatch.setattr(module, "gpu_inventory", lambda: {"0": {"free": 20}})
+    monkeypatch.setattr(module, "choose_device", lambda *args: "0")
+    monkeypatch.setattr(module, "stop_workers", lambda active: stopped.extend(active))
+    monkeypatch.setattr(module.shutil, "disk_usage", lambda path: SimpleNamespace(free=100 * 2**30))
+    monkeypatch.setattr(module.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(module.signal, "signal", lambda *args: None)
+    assert module.run_queue(args, [run], ["0"], None) == 0
+    assert run.status == "complete" and process.polls == 2
+    assert reports and not stopped
+
+
+def test_summary_permission_error_is_not_hidden(tmp_path, monkeypatch, sweep_module):
+    def denied(*args):
+        raise PermissionError(errno.EACCES, "permission denied")
+    monkeypatch.setattr(sweep_module, "summary", denied)
+    with pytest.raises(PermissionError):
+        sweep_module.try_summary(SimpleNamespace(output_root=tmp_path), [], [], "running")
+
+
+def test_worker_temporary_and_wandb_files_use_monitored_filesystem(tmp_path, monkeypatch, sweep_module):
+    monkeypatch.setenv("TMPDIR", "/unmonitored/root/tmp")
+    args = SimpleNamespace(output_root=tmp_path, threads=4)
+    env = sweep_module.worker_environment(args, {"uuid": "GPU-fixture"})
+    for key in ("TMPDIR", "TMP", "TEMP", "WANDB_CACHE_DIR", "WANDB_DATA_DIR"):
+        assert Path(env[key]).is_relative_to(tmp_path / "_runtime")
+        assert Path(env[key]).is_dir()
+    assert env["CUDA_VISIBLE_DEVICES"] == "GPU-fixture"

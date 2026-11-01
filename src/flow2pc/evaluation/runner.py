@@ -56,6 +56,8 @@ def evaluate(
     Settings explicitly record all-population versus held-out-row evaluation.
     Teacher/student observation EMD and paired flow error are separate metrics.
     """
+    if settings.get("protocol") == "native_otpfm":
+        raise ValueError("Use the OTP-FM native finite-interval evaluator for native_otpfm; shared ODE metrics are a separate protocol")
     validate_resources(dataset, settings)
     source = fixed_subset(
         population(dataset, 0, settings["source_split"]),
