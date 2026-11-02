@@ -84,21 +84,47 @@ def prepare(config):
     return {
         "method": "mfm", "source_root": str(source), "data_root": str(data_root),
         "native_config": str(native_config), "output_dir": str(output_dir),
+        "input_name": filename,
         "command": [sys.executable, "-m", "mfm.train.main", "--config_path",
                     str(native_config), "--working_dir", str(output_dir)],
     }
 
 
-def run(resolved):
+def _prepare_output_data(resolved):
+    """Expose only this run's input, preserving source data and existing files."""
     output = Path(resolved["output_dir"])
     data_root = Path(resolved["data_root"])
-    data_link = output / "data"
+    filename = resolved["input_name"]
+    source = data_root / filename if filename else None
+    if source is not None and not source.exists():
+        raise FileNotFoundError(f"MFM input is missing: {source}")
+    data_dir = output / "data"
     output.mkdir(parents=True, exist_ok=True)
-    if data_link.exists() or data_link.is_symlink():
-        if data_link.resolve() != data_root:
-            raise ValueError(f"{data_link} differs from configured data.root")
+    if data_dir.is_symlink():
+        if data_dir.resolve() != data_root:
+            raise ValueError(f"{data_dir} differs from configured data.root")
+        # Unlink the legacy directory alias, never any of its children.
+        data_dir.unlink()
+    elif data_dir.exists() and not data_dir.is_dir():
+        raise ValueError(f"{data_dir} must be a directory")
+    if source is None:
+        return output
+    if data_dir.resolve() == data_root:
+        raise ValueError(f"{data_dir} must be separate from configured data.root")
+    data_dir.mkdir(exist_ok=True)
+    data_link = data_dir / filename
+    if data_link.is_symlink():
+        if data_link.resolve() != source.resolve():
+            raise ValueError(f"{data_link} differs from configured input")
+    elif data_link.exists():
+        raise ValueError(f"{data_link} already exists; refusing to overwrite it")
     else:
-        data_link.symlink_to(data_root, target_is_directory=True)
+        data_link.symlink_to(source, target_is_directory=source.is_dir())
+    return output
+
+
+def run(resolved):
+    output = _prepare_output_data(resolved)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, (
         resolved["source_root"], env.get("PYTHONPATH"))))
