@@ -13,11 +13,15 @@ import yaml
 from flow2pc.utils.checkpoint import atomic_json, save_teacher, sha256
 from flow2pc.utils.tracking import LocalLogger
 
-from .profiles import get_profile, setup_native
+from .profiles import MarginalProfile, get_profile, setup_native
 
 
 class OTPFMMethod:
     def validate(self, config):
+        if isinstance(get_profile(config["data"]["name"]), MarginalProfile):
+            from .marginals import validate
+
+            return validate(config)
         if set(config["model"]["params"]) != {"recipe", "native_config"}:
             raise ValueError("OTP-FM model.params requires recipe and the complete native_config mapping")
         get_profile(config["data"]["name"])
@@ -44,6 +48,10 @@ class OTPFMMethod:
 
     def fit(self, dataset, config, run_dir):
         self.validate(config)
+        if isinstance(get_profile(config["data"]["name"]), MarginalProfile):
+            from .marginals import fit
+
+            return fit(dataset, config, run_dir)
         from .provenance import verify_source
 
         provenance = verify_source()

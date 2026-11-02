@@ -124,6 +124,26 @@ PC sampler is a separate, pending integration. See the
 [OTP-FM migration notes](docs/OTP_FM_MIGRATION.md) for configuration, outputs,
 native evaluation semantics and dataset extension points.
 
+For OTP-FM on the ALI-CFM experiment datasets, prepare the
+[100-config-per-profile sweep](docs/OTP_FM_ALI_DATA_SWEEP.md):
+
+```bash
+bash scripts/run_otpfm_ali_data_sweep_8gpu.sh --dry-run
+bash scripts/run_otpfm_ali_data_sweep_8gpu.sh
+```
+
+Standalone OTP-FM teacher configs live in `configs/pretrain/`. For example:
+
+```bash
+python main.py --config configs/pretrain/otpfm_cite50.yaml
+```
+
+The sweep prepares 1,000 teachers across ten dataset/dimension profiles and defaults
+to two workers per GPU across eight GPUs. It inherits each experiment's data and
+W1 EMD settings, with the six README-specified frames for tracking, final figures,
+W&B `flow2pc`, and disk-safe resumable orchestration. These are new dataset
+adaptations; training/evaluation of this sweep has not been run by the assistant.
+
 ## Development
 
 `make test` and `make lint` are available for explicit use. No training,

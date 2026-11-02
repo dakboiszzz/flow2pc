@@ -135,7 +135,7 @@ def evaluate(
                     "teacher_ode": teacher_path,
                 },
             )
-        indices = (
+        indices = settings.get("time_indices") or (
             list(TRACKING_FRAMES)
             if dataset.metadata.name == "cell_tracking"
             else list(range(len(times)))

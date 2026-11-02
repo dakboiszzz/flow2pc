@@ -1,5 +1,11 @@
 # OTP-FM migration: original training, native evaluation, common interfaces
 
+The later [ALI-CFM-data sweep](OTP_FM_ALI_DATA_SWEEP.md) adds shared marginal
+profiles for CITE/Multi, EB PHATE-2D, ST, tracking and knot. That extension uses
+the existing W1/velocity-ODE experiment metric and is distinct from the native
+GOM/Beijing parity phase described here. The original 17 pinned source files
+remain unchanged; one original tuple-dataset class is additionally retained.
+
 Implemented first phase: GOM and Beijing teachers behind the common
 `python main.py --config ...` CLI, with the original OTP-FM model, losses,
 potential solvers, EMA, training/validation loops, data couplings, evaluation

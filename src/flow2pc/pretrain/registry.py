@@ -8,7 +8,7 @@ teachers.register(
 )
 teachers.register(
     "otpfm", "flow2pc.pretrain.models.otpfm.trainer:OTPFMMethod",
-    "Original OTP-FM core and native GOM/Beijing training; frozen EMA instantaneous velocity.",
+    "Original OTP-FM core, native GOM/Beijing and shared marginal adaptations; frozen EMA velocity.",
 )
 for name in ("mfm", "mmfm"):
     teachers.register(

@@ -3,7 +3,7 @@
   "local_source": "../otp-fm",
   "upstream_revision": "ca4fe796930414ae749eba2b299e7c7ec8cebf3d",
   "license": "Apache-2.0",
-  "scope": "Core OTP-FM plus native GOM/Beijing coupling/training/evaluation/plots; no new algorithm.",
+  "scope": "Original core and GOM/Beijing profiles plus original general single-cell tuple dataset; new shared-data sweep adapters live outside _source.",
   "files": [
     {
       "upstream_file": "src/otpfm/lambdas.py",
@@ -188,6 +188,18 @@
         "RunLogger",
         "trainer_kwargs",
         "log_trajectory_previews"
+      ]
+    },
+    {
+      "upstream_file": "experiments/singlecell/data.py",
+      "upstream_sha256": "a4eb6144ffd8c8b7587b1e3a9a6aa5951307ca37a7b80f01985d460d7284d18f",
+      "migrated_file": "singlecell_tuples.py",
+      "migrated_sha256": "3ccdf0efa42450f1795688b1641d26a83b20b77190c1b38b0aef5abdd8cb32a0",
+      "changes": [
+        "Selected EBMultiMarginalDataset copied unchanged; raw loading/downloading is excluded."
+      ],
+      "definitions": [
+        "EBMultiMarginalDataset"
       ]
     }
   ],

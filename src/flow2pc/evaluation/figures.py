@@ -25,6 +25,8 @@ def validate_resources(dataset, settings):
     if not settings.get("enabled", False):
         return
     name = dataset.metadata.name
+    if any(i >= len(dataset.metadata.model_times) for i in settings.get("time_indices", [])):
+        raise ValueError("Evaluation time index is outside the recorded marginal grid")
     metric_coordinates(
         torch.zeros(1, dataset.dim), dataset.preprocessing, settings["metric_space"]
     )
@@ -37,7 +39,7 @@ def validate_resources(dataset, settings):
                 else dataset.labels
             )
             if name == "st"
-            else TRACKING_FRAMES
+            else settings.get("time_indices", TRACKING_FRAMES)
         )
         for label in labels:
             path = directory / (
@@ -73,7 +75,8 @@ def save_figures(dataset, teacher_path, student_path, output, settings):
 
         directory = image_directory(dataset, settings)
         backgrounds = []
-        for index in TRACKING_FRAMES:
+        frames = settings.get("time_indices", TRACKING_FRAMES)
+        for index in frames:
             with Image.open(directory / f"t{index:03d}.tif") as handle:
                 backgrounds.append(np.asarray(handle).copy())
 
@@ -93,20 +96,24 @@ def save_figures(dataset, teacher_path, student_path, output, settings):
             axis.axis("off")
 
         for label, path in models:
-            fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+            columns = 3 if len(frames) == 6 else 4
+            fig, axes = plt.subplots((len(frames) + columns - 1) // columns, columns,
+                                     figsize=(4 * columns, 8), squeeze=False)
             for axis, index, background in zip(
-                axes.flat, TRACKING_FRAMES, backgrounds, strict=True
+                axes.flat, frames, backgrounds
             ):
                 panel(axis, index, path, label, background)
+            for axis in list(axes.flat)[len(frames):]:
+                axis.axis("off")
             fig.suptitle(
                 "Cell tracking | cyan: observed mask, red: velocity-driven ODE"
             )
             save(fig, f"{label}_overlay", f"{label}_overlay.png")
         if student_path is not None:
-            fig, axes = plt.subplots(2, 8, figsize=(26, 7))
+            fig, axes = plt.subplots(2, len(frames), figsize=(3.25 * len(frames), 7))
             for row, (label, path) in enumerate(models):
                 for col, (index, background) in enumerate(
-                    zip(TRACKING_FRAMES, backgrounds, strict=True)
+                    zip(frames, backgrounds, strict=True)
                 ):
                     panel(axes[row, col], index, path, label, background)
             fig.suptitle("Teacher / student | identical observed source particles")

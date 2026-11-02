@@ -5,9 +5,9 @@ from pathlib import Path
 
 from flow2pc.data.restore import restore_dataset
 from flow2pc.evaluation.runner import evaluate
-from flow2pc.pretrain.models.alicfm.trainer import LocalLogger
 from flow2pc.pretrain.runner import load_teacher
 from flow2pc.utils.checkpoint import atomic_json
+from flow2pc.utils.tracking import LocalLogger
 
 
 def run(config, role):
@@ -18,7 +18,10 @@ def run(config, role):
 
         return evaluate_checkpoint(config)
     if config.get("model", {}).get("name") == "otpfm":
-        raise ValueError("Use evaluation.protocol=native_otpfm for the migrated OTP-FM CLI; shared diagonal-ODE diagnostics are a separate protocol")
+        from flow2pc.pretrain.models.otpfm.profiles import MarginalProfile, get_profile
+
+        if config["evaluation"].get("protocol") != "shared_ode" or not isinstance(get_profile(config["data"]["name"]), MarginalProfile):
+            raise ValueError("Native transport OTP-FM uses native_otpfm; shared-data profiles use explicit shared_ode evaluation")
     if config["stage"] == "pretrain":
         if role != "teacher":
             raise ValueError("Student evaluation requires its distill config")

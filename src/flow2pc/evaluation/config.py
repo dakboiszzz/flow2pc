@@ -19,11 +19,17 @@ DEFAULTS = dict(
 
 
 def resolve_evaluation(value):
-    if not isinstance(value, dict) or set(value) - set(DEFAULTS) - {"image_dir", "protocol"}:
+    if not isinstance(value, dict) or set(value) - set(DEFAULTS) - {"image_dir", "protocol", "time_indices"}:
         raise ValueError("Unknown evaluation settings")
     result = {**DEFAULTS, **value}
     if "protocol" in value and value["protocol"] not in ("shared_ode", "native_otpfm"):
         raise ValueError("Unknown evaluation.protocol")
+    if "time_indices" in value:
+        indices = value["time_indices"]
+        if (not isinstance(indices, list) or len(indices) < 2
+                or any(type(i) is not int or i < 0 for i in indices)
+                or indices != sorted(set(indices))):
+            raise ValueError("evaluation.time_indices must be sorted unique nonnegative marginal indices")
     if type(result["enabled"]) is not bool:
         raise ValueError("evaluation.enabled must be boolean")
     for key in (

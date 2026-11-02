@@ -20,6 +20,14 @@ class DatasetProfile:
     metric_time_rule: str = "native nearest stored time"
 
 
+@dataclass(frozen=True)
+class MarginalProfile:
+    """Shared-data adaptation; native transport profiles retain their own path."""
+
+    source_subdir: str
+    protocol: str = "shared_ode"
+
+
 PROFILES = {}
 
 
@@ -45,6 +53,14 @@ for name, native, cls, function in (
         f"compute_{function}_ot_alignments", f"create_{function}_dataloaders", name,
         "native nearby-time minimum for holdouts" if name == "gom" else "native nearest stored time",
     ))
+
+
+for name, subdir in (
+    ("cite", "single_cell"), ("multi", "single_cell"), ("eb", "single_cell"),
+    ("st", "spatial_transcriptomics"), ("cell_tracking", "cell_tracking"),
+    ("knot", "knot"),
+):
+    register_profile(name, MarginalProfile(subdir))
 
 
 def setup_native(dataset, config, device):
