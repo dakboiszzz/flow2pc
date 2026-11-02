@@ -1,0 +1,231 @@
+{
+  "upstream_repository": "https://github.com/mmacosha/adversarially-learned-interpolants",
+  "local_source": "../ali-cfm",
+  "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+  "license_declaration": "MIT, declared in upstream pyproject.toml",
+  "scope": "Core networks, sampling and staged training functions from the supplied checkout, with the matching historical ST piecewise implementation and the original full-curve NumPy knot training path restored. Per-file revisions override the default revision.",
+  "files": [
+    {
+      "upstream_file": "ali_cfm/nets.py",
+      "upstream_sha256": "4a79dae2386ecc8e3e42401cfdbb86163f6b3f3d54a39b740f3df78c361c1db0",
+      "migrated_file": "nets.py",
+      "migrated_sha256": "4a79dae2386ecc8e3e42401cfdbb86163f6b3f3d54a39b740f3df78c361c1db0",
+      "changes": [],
+      "upstream_committed_sha256": "4a79dae2386ecc8e3e42401cfdbb86163f6b3f3d54a39b740f3df78c361c1db0",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/land_metric.py",
+      "upstream_sha256": "05dfb53911df52130ff9555f91682990f70230aa201755da66d566cc3313b278",
+      "migrated_file": "land_metric.py",
+      "migrated_sha256": "05dfb53911df52130ff9555f91682990f70230aa201755da66d566cc3313b278",
+      "changes": [],
+      "upstream_committed_sha256": "05dfb53911df52130ff9555f91682990f70230aa201755da66d566cc3313b278",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_funcs.py",
+      "upstream_sha256": "f8c59dc8f1e7930e1732abec890a135d2b48ef9ce35674a4d7e12dbbc6d2c33d",
+      "migrated_file": "training_funcs.py",
+      "migrated_sha256": "f47dac457b6df51dc733679e168b3ecafb6907dea6076235327122bef84be8b6",
+      "changes": [
+        "Removed unused import: from ali_cfm.loggin_and_metrics import compute_emd",
+        "Removed unused import: from ali_cfm.data_utils import denormalize",
+        "Added optional logger argument to the three training loops; default is the original wandb logger. Log calls use that argument; algorithm statements are unchanged."
+      ],
+      "upstream_committed_sha256": "7d355e323a23cceae4cee3d97797c01f372777e5ca35c52db77e3d1c2526d5f5",
+      "upstream_content_scope": "supplied_working_checkout"
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_utils.py",
+      "upstream_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
+      "migrated_file": "training_utils.py",
+      "migrated_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
+      "changes": [],
+      "upstream_committed_sha256": "c3c6e38c091df77101b2d0591b3d9040a427d898f11a29e8cf99d8ba86024c01",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/scripts/train_ali_st.py",
+      "upstream_sha256": "26e5b594e5058ea89cc62b1937cc93c2c68c7db14991e368215cf5e4f5222327",
+      "migrated_file": "st.py",
+      "migrated_sha256": "c92fec648de55f87dae5e2b1dda1e0152d82345104cb8d3649acc0fcf320de4d",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ],
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_committed_sha256": "26e5b594e5058ea89cc62b1937cc93c2c68c7db14991e368215cf5e4f5222327",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/scripts/train_ali_tracking.py",
+      "upstream_sha256": "63ac77a785097a30d9066f830a12e5ee86e053df2a90e6ae96bc0f522bfd313f",
+      "migrated_file": "tracking.py",
+      "migrated_sha256": "5b7865b35b10e732b4b39c8752076ecdc7c5c1b9866107b847aa4c3bd685c607",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ],
+      "upstream_committed_sha256": "0a9184c35e8631feb2bac07183c60e1a182cee6e084bb233466f8bd4b47e2c66",
+      "upstream_content_scope": "supplied_working_checkout"
+    },
+    {
+      "upstream_file": "train_teacher.py",
+      "upstream_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "migrated_file": "knot.py",
+      "migrated_sha256": "0df57fd9dbe89862c150f5c9bf9ed31729775d165c05f4a90901436ceccfbd9b",
+      "changes": [
+        "Selected authentic model/training definitions only; optional logging sink for CFM loops. No dataset imports or experiment execution."
+      ],
+      "upstream_committed_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/nets.py",
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_sha256": "65ec31b1dd3c0fa87920d9a9e6d00ef37ec118dd0a7de803fc25d13c9f57f483",
+      "migrated_file": "st_interpolant.py",
+      "migrated_sha256": "3aca0a227ed7901cb229507db3e057673e17daea069887dcac7491a26704ff18",
+      "changes": [
+        "Selected compute_piecewise_reg_term and dI_dt verbatim from TrainableInterpolant in the ST-era revision, in STInterpolant. Inherited layer construction and forward formula are unchanged."
+      ],
+      "upstream_committed_sha256": "65ec31b1dd3c0fa87920d9a9e6d00ef37ec118dd0a7de803fc25d13c9f57f483",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/training/training_funcs.py",
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_sha256": "6c2002f3cf4b2fc7e0041f90df86a5451768926b1b17d5db3fafba92298955a8",
+      "migrated_file": "st_training.py",
+      "migrated_sha256": "f55996f15fe472115c9766f4add406d46182d9dcba5f355e26292d521eec9a35",
+      "changes": [
+        "Selected pretain_interpolant and train_interpolant_with_gan from the same ST-era revision. Added optional logger injection; no optimization or sampling statements changed."
+      ],
+      "upstream_committed_sha256": "6c2002f3cf4b2fc7e0041f90df86a5451768926b1b17d5db3fafba92298955a8",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "train_teacher.py",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "migrated_file": "knot_training.py",
+      "migrated_sha256": "25bbce6c9b88f7f1ef7a84dd293a2a7852b48ffb22625a901c6d7efec19ff46c",
+      "changes": [
+        "Lifted the original nested get_knot_data sampler to module scope without changing its AST; retained full-curve NumPy noise draws and float32 conversion order.",
+        "Extracted both original GAN/CFM update loops; injected device, batch/update budgets, size/noise and regularizer settings plus a logger. Default scientific settings match the supplied trainer.",
+        "Model construction, optimizers, explicit framework seed, checkpoint saving and evaluation remain owned by the framework; no standalone experiment executes on import."
+      ],
+      "upstream_committed_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "upstream_content_scope": "pinned_revision"
+    },
+    {
+      "upstream_file": "ali_cfm/spatial_transcriptomics/utils.py",
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_sha256": "bb5991026495d84957f1fafea6bd738b99d69b4564aeca097ad079fffef180bd",
+      "migrated_file": "st_plot.py",
+      "migrated_sha256": "679ad8ee8413795b98006ef9786ddb058b626f97c6fe37637a79134e09dc2f8c",
+      "changes": [
+        "Selected native Plotter constructor, overlay_spot_coordinates and plot_fn without changing their ASTs.",
+        "Copied denormalize from the matching data_utils.py; imports are local and no standalone experiment executes."
+      ],
+      "upstream_committed_sha256": "bb5991026495d84957f1fafea6bd738b99d69b4564aeca097ad079fffef180bd",
+      "upstream_content_scope": "pinned_revision"
+    }
+  ],
+  "profile_revisions": {
+    "st": "501e9db6a3bcb1b96eb893882b62a56f78fe1823"
+  },
+  "profile_configs": {
+    "st": {
+      "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
+      "upstream_file": "configs/st/st_cfg.yaml",
+      "upstream_sha256": "80b0756523053baba6435715f0bed302be26d75dff911e4e03d18080c3e43d14",
+      "migrated_file": "configs/pretrain/alicfm_st.yaml",
+      "changes": [
+        "One explicitly seeded first fold; original ST model sizes, piecewise/l2 objectives, OT, learning rates, batches and update counts.",
+        "Native all-marginal preprocessing, full observed populations, pandas CSV loading and original Plotter callbacks restored.",
+        "Shared paths, W&B flow2pc and framework artifacts; shared post-training evaluation has a separately recorded protocol."
+      ]
+    },
+    "knot": {
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_file": "train_teacher.py",
+      "upstream_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
+      "migrated_file": "configs/pretrain/alicfm_knot.yaml",
+      "changes": [
+        "Preserved lifted y2=sin(...)+1, native widths, optimizer algorithms/rates, loss reductions, batch and update budgets. Explicit run seed and configurable settings are framework additions.",
+        "Restored full-curve NumPy sampling and the native GAN/CFM statement order; snapshot splits are evaluation/student metadata, not teacher batch pools.",
+        "W&B flow2pc and combined framework checkpoint plumbing retained. Shared evaluation is not the native Euler evaluation."
+      ]
+    },
+    "cite5": {
+      "upstream_file": "configs/single_cell/5D/cite-5D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "60bc8306bdee247b06a998a62b50e56dd88f65612ccdaf586d56e7b15d315a94",
+      "migrated_file": "configs/pretrain/alicfm_cite5.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "cite50": {
+      "upstream_file": "configs/single_cell/50D/cite-50D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "e9552eb6a7e4db1cec32440b10a07ba31e0a22e6e7aac087ff1a37e72dbecb42",
+      "migrated_file": "configs/pretrain/alicfm_cite50.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "cite100": {
+      "upstream_file": "configs/single_cell/100d/cite-100D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "703d65863c5fbf98326aeb659cb11de2d4d2a478ecdaeaee36c00168ee159404",
+      "migrated_file": "configs/pretrain/alicfm_cite100.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "multi5": {
+      "upstream_file": "configs/single_cell/5D/multi-5D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "6582c6be829236278c5b1753a0ad8c50ba6e4f9393c3d88bd9e9a9a623ad6021",
+      "migrated_file": "configs/pretrain/alicfm_multi5.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "multi50": {
+      "upstream_file": "configs/single_cell/50D/multi-50D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "18ea0f16e215e38ebc2242d037520b91e8cf0bc5dd8a6a858bc073b194ba01fc",
+      "migrated_file": "configs/pretrain/alicfm_multi50.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "multi100": {
+      "upstream_file": "configs/single_cell/100d/multi-100D.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "4223c57fab2ec3e86531576fbdc5e6188029c2af1b375e083ec6a113bf405ff6",
+      "migrated_file": "configs/pretrain/alicfm_multi100.yaml",
+      "changes": [
+        "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
+        "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
+      ]
+    },
+    "cell_tracking": {
+      "upstream_file": "configs/cell_tracking/ali_cell_tracking.yaml",
+      "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
+      "upstream_sha256": "d7e037489099e9f0dd8acbc430b961edf90b8b0ea5f4386813153e7c67aa8278",
+      "migrated_file": "configs/pretrain/alicfm_cell_tracking.yaml",
+      "changes": [
+        "User selected the repository reconstructed_unverified recipe, not the changed_files checkpoint. Native raw-pixel CFM and all provided scalar settings retained.",
+        "Shared prepared mask path, native all-frame min-max and seeded subsets; W&B flow2pc and framework artifact/evaluation plumbing."
+      ]
+    }
+  }
+}

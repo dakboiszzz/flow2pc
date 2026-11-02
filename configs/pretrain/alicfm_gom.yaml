@@ -1,0 +1,61 @@
+# New-dataset adaptation: original ALI-CFM loops, not a published GOM recipe.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    profile: single_cell
+    cfm_dim: 128
+    interpolant_dim: 128
+    disc_dim: 128
+    t_smooth: 0.01
+    pretain_ot: mmot
+    interpolant_ot: mmot
+    cfm_ot: mmot
+    correct_coeff: 0.01
+    reg_metric: l2
+    land_gamma: 2.0e-8
+    land_t_gamma: 2.0e-8
+    land_epsilon: 1.0e-6
+    reg_term_type: 2nd_derivative
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: R3GAN
+    r3gan_gamma: 1.0
+data:
+  name: gom
+  root: /data/lthung/otp-fm
+  params:
+    normalise: false
+    whiten: true
+    preprocessing_protocol: native_all
+training:
+  protocol: marginal
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 2000
+  pretrain_lr: 0.001
+  num_ali_train_steps: 30000
+  interpolant_gen_lr: 0.0001
+  interpolant_disc_lr: 0.0001
+  num_cfm_train_steps: 10000
+  cfm_lr: 0.001
+logging:
+  mode: online
+  project: flow2pc
+  name: alicfm-gom-base-seed42
+output:
+  dir: /data/lthung/flow2pc/alicfm-transport/pretrain/gom/base-seed42
+evaluation:
+  enabled: true
+  num_samples: 0
+  metric_samples: 1024
+  batch_size: 128
+  seed: 2026
+  solver: dopri5
+  tolerance: 1.0e-5
+  ode_steps: 100
+  max_nfe: 50000
+  metric_space: raw
+  source_split: all
+  reference_split: all

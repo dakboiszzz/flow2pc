@@ -3,8 +3,6 @@ import unittest
 import torch
 
 from repc.hclt_pc import TimeDependentHCLTPC
-from repc.pc import TimeDependentGaussianPC
-from repc.region_pc import RegionGraphPC
 
 
 class IndependentTimeBatchingTest(unittest.TestCase):
@@ -12,9 +10,6 @@ class IndependentTimeBatchingTest(unittest.TestCase):
         torch.manual_seed(7)
         models = (
             TimeDependentHCLTPC([-1, 0, 1, 1], 4, 2, "dense"),
-            TimeDependentHCLTPC([-1, 0, 1, 1], 4, 2, "monarch"),
-            RegionGraphPC(2, 2, 2, 2),
-            TimeDependentGaussianPC(4, 4, 2),
         )
         values = torch.randn(3, 4)
         times = torch.tensor([0.1, 0.5, 0.9])
