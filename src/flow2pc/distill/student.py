@@ -8,11 +8,7 @@ from flow2pc.pc.hclt_pc import TimeDependentHCLTPC
 
 
 class ClampConsistentHCLTPC(TimeDependentHCLTPC):
-    """The existing cell-tracking subclass; its state-dict keys are unchanged."""
-
-    def leaf_parameters(self, time):
-        mean, mean_dt, logs, logs_dt = super().leaf_parameters(time)
-        return mean, mean_dt, logs, logs_dt * ((logs > -20) & (logs < 20))
+    """Compatibility class; HCLT log scale is now unclamped for all datasets."""
 
 
 def learn_topology(clouds, bins=32):

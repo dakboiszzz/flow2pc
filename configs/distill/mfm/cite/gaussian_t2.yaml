@@ -1,0 +1,39 @@
+stage: distill
+teacher:
+  name: mfm
+  checkpoint: checkpoints/metric_flow/cite/yyi45ly0/flow_model/epoch=549-step=26950.ckpt
+  params:
+    repo_path: /data/pqhung_group/pdtung/metric-flow-matching
+    geopath_checkpoint: checkpoints/metric_flow/cite/yyi45ly0/geopath_model/epoch=39-step=1960.ckpt
+data:
+  name: cite
+  root: /data/pqhung_group/pdtung/metric-flow-matching/data
+student:
+  name: gaussian
+  params:
+    num_components: 64
+    time_order: 4
+distillation:
+  steps: 20000
+  batch_size: 128
+  lr: 0.001
+  device: auto
+  source_nll_weight: 1.0
+  gradient_clip: 1.0
+  log_every: 100
+  validate_every: 1000
+  checkpoint_every: 5000
+  resume_checkpoint: null
+seed: 42
+output:
+  dir: outputs/runs/metric/cite_gaussian_t2
+evaluation:
+  enabled: true
+  samples: 128
+  projections: 32
+  ode_substeps: 16
+  seed: 1234
+  decode_images: false
+  vae_path: checkpoints/metric_flow/vae
+wandb:
+  mode: disabled

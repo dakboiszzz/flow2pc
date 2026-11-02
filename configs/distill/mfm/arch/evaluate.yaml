@@ -1,0 +1,6 @@
+stage: evaluate
+evaluation:
+  backend: mfm
+  checkpoint: outputs/runs/metric/arch_hclt/checkpoints/last.pt
+  device: cpu
+  params: {}

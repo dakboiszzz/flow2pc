@@ -59,31 +59,64 @@ def discretized_gaussian_log_mass(
     return log_mass
 
 
-
-
 class TimeDependentGaussianPC(ProbabilisticCircuit):
     """Gaussian sum-product circuit parameterized over flow time."""
 
-    def __init__(self, num_components: int, dim: int, time_order: int = 4):
+    def __init__(
+        self,
+        num_components: int,
+        dim: int,
+        time_order: int = 4,
+        polynomial_zero_center: bool = True,
+    ):
         super().__init__()
         self.num_components = num_components
         self.dim = dim
         self.time_order = time_order
-        shape = (num_components, dim, time_order)
-        self.mean_coefficients = nn.Parameter(torch.zeros(shape))
-        self.log_scale_coefficients = nn.Parameter(torch.zeros(shape))
+        self.polynomial_zero_center = polynomial_zero_center
+        num_features = time_order if polynomial_zero_center else (time_order + 1)
+        shape = (num_components, dim, num_features)
+        # Identical coefficients give identical responsibilities and gradients,
+        # trapping the mixture in a single Gaussian. Perturb each component;
+        # the time basis vanishes at t=0, preserving the exact N(0, I) boundary.
+        self.mean_coefficients = nn.Parameter(0.01 * torch.randn(shape))
+        self.log_scale_coefficients = nn.Parameter(0.01 * torch.randn(shape))
         self.mixture_logits = nn.Parameter(torch.zeros(num_components))
 
     def _time_basis(self, time: torch.Tensor):
-        powers = torch.arange(
-            1,
-            self.time_order + 1,
-            device=time.device,
-            dtype=time.dtype,
-        )
-        if time.ndim > 0:
-            time = time[:, None]
-        return time**powers, powers * time ** (powers - 1)
+        if self.polynomial_zero_center:
+            powers = torch.arange(
+                1,
+                self.time_order + 1,
+                device=time.device,
+                dtype=time.dtype,
+            )
+            orig_ndim = time.ndim
+            time_in = time[:, None] if orig_ndim > 0 else time
+            return time_in**powers, powers * time_in ** (powers - 1)
+        else:
+            powers = torch.arange(
+                0,
+                self.time_order + 1,
+                device=time.device,
+                dtype=time.dtype,
+            )
+            orig_ndim = time.ndim
+            time_in = time[:, None] if orig_ndim > 0 else time
+            basis = time_in**powers
+            derivative = torch.zeros_like(basis)
+            if self.time_order >= 1:
+                p_pos = powers[1:]
+                t_pow = torch.where(
+                    (p_pos == 1) & (time_in == 0.0),
+                    torch.ones_like(time_in),
+                    time_in ** (p_pos - 1),
+                )
+                if orig_ndim > 0:
+                    derivative[:, 1:] = p_pos * t_pow
+                else:
+                    derivative[1:] = p_pos * t_pow
+            return basis, derivative
 
     def leaf_parameters(self, time: torch.Tensor):
         basis, derivative = self._time_basis(time)

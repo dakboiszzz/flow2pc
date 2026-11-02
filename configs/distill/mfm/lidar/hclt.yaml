@@ -1,0 +1,42 @@
+stage: distill
+teacher:
+  name: mfm
+  checkpoint: checkpoints/metric_flow/lidar/n2jy6i6o/flow_model/epoch=109-step=3850.ckpt
+  params:
+    repo_path: /data/pqhung_group/pdtung/metric-flow-matching
+    geopath_checkpoint: checkpoints/metric_flow/lidar/n2jy6i6o/geopath_model/epoch=22-step=805.ckpt
+data:
+  name: lidar
+  root: /data/pqhung_group/pdtung/metric-flow-matching/data
+student:
+  name: hclt
+  params:
+    num_latents: 64
+    time_embedding_dim: 64
+    topology: learned
+    topology_samples: 2048
+    time_order: 4
+distillation:
+  steps: 20000
+  batch_size: 128
+  lr: 0.001
+  device: auto
+  source_nll_weight: 1.0
+  gradient_clip: 1.0
+  log_every: 100
+  validate_every: 1000
+  checkpoint_every: 5000
+  resume_checkpoint: null
+seed: 42
+output:
+  dir: outputs/runs/metric/lidar_hclt
+evaluation:
+  enabled: true
+  samples: 128
+  projections: 32
+  ode_substeps: 16
+  seed: 1234
+  decode_images: false
+  vae_path: checkpoints/metric_flow/vae
+wandb:
+  mode: disabled

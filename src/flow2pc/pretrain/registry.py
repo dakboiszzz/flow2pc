@@ -6,11 +6,7 @@ teachers.register(
     "flow2pc.pretrain.models.alicfm.trainer:ALICFM",
     "Original ALI-CFM profiles for CITE/Multi, EB PHATE, ST, knot and cell tracking.",
 )
-teachers.register(
-    "otpfm", "flow2pc.pretrain.models.otpfm.trainer:OTPFMMethod",
-    "Original OTP-FM core, native GOM/Beijing and shared marginal adaptations; frozen EMA velocity.",
-)
-for name in ("mfm", "mmfm"):
+for name in ( "mmfm"):
     teachers.register(
         name,
         None,

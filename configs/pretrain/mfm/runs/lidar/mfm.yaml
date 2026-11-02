@@ -1,0 +1,13 @@
+stage: pretrain
+model:
+  name: mfm
+  params:
+    source_root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching
+    config_path: configs/pretrain/mfm/upstream/lidar/mfm.yaml
+data:
+  name: lidar
+  root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching/data
+training: {}
+seed: 42
+output:
+  dir: outputs/pretrain/mfm/lidar/mfm

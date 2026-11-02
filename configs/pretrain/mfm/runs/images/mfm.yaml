@@ -1,0 +1,13 @@
+stage: pretrain
+model:
+  name: mfm
+  params:
+    source_root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching
+    config_path: configs/pretrain/mfm/upstream/images/mfm.yaml
+data:
+  name: afhq
+  root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching/data
+training: {}
+seed: 43
+output:
+  dir: outputs/pretrain/mfm/images/mfm

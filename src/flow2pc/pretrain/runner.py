@@ -8,6 +8,10 @@ from flow2pc.pretrain.registry import teachers
 
 
 def prepare(config):
+    if config["model"]["name"] == "mfm":
+        from flow2pc.pretrain.models.mfm.trainer import prepare as prepare_mfm
+
+        return teachers.get("mfm")(), prepare_mfm(config)
     data = config["data"]
     method = teachers.get(config["model"]["name"])()
     method.validate(config)

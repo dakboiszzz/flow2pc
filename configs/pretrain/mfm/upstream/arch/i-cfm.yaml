@@ -1,0 +1,9 @@
+accelerator: "gpu"
+devices: [0]
+data_type: "arch"
+mfm: false
+optimal_transport_method: None
+seeds: [42]
+dim: 2
+whiten: false
+t_exclude: [1]

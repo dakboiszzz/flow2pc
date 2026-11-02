@@ -1,7 +1,8 @@
 # Flow2PC
 
-Flow2PC distills a frozen flow-matching velocity field into a time-dependent
-probabilistic circuit. The student training objective is teacher-velocity MSE.
+Flow2PC distills frozen flow-matching velocity fields into time-dependent
+probabilistic circuits. ALI-CFM uses teacher-velocity MSE; MFM uses velocity
+MSE plus a configurable source-marginal NLL term.
 
 ## Retained code
 
@@ -22,8 +23,10 @@ tests/                         HCLT mathematics and shared framework contracts
 docs/                          architecture and migration notes
 ```
 
-The HCLT implementation retains the constructor, free-source Fourier option,
-state-dict keys and velocity calculations used in the successful real-data runs.
+The HCLT implementation retains the constructor, free-source Fourier option
+and state-dict keys used in the successful real-data runs. Its `log_scale`
+clamp has been removed, so values outside the former range can change velocity
+and likelihood results for existing checkpoints.
 Its Gaussian/base helper files are retained because they are actual imports.
 The ALI-CFM classes from the real-data version of `flow.py` are kept in
 `pretrain/models/alicfm/checkpoint_adapter.py`, with `repc.flow` compatibility.
@@ -38,6 +41,37 @@ also archived. See [the cleanup and migration notes](docs/MIGRATION.md).
 ```bash
 python -m pip install -e '.[dev,alicfm]'
 ```
+
+For MFM, install the optional dependencies with
+`python -m pip install -e '.[metric]'` and keep the original MFM source checkout and its datasets at the
+paths selected by the configs. No MFM data or weights are downloaded.
+
+## MFM integration
+
+MFM pretraining delegates to the original two-phase geopath/flow trainer:
+
+```bash
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/arch.yaml --validate-only
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/arch.yaml
+```
+
+The 17 runnable MFM pretraining configs are under `configs/pretrain/mfm/`.
+Its 22 original MFM/CFM YAML files are preserved under
+`configs/pretrain/mfm/upstream/`; five CFM files are reference-only.
+The trainer writes native Lightning checkpoints. Point a distillation config
+at matching flow and geopath checkpoints, then inspect it with:
+
+```bash
+PYTHONPATH=src python main.py --config configs/distill/mfm/arch/hclt.yaml --validate-only
+```
+
+MFM distillation supports HCLT and Gaussian students. Its source NLL weight
+is recorded in the config and student checkpoint; `0` selects velocity MSE
+alone. The HCLT `log_scale` is not clamped. MFM's physical observation labels,
+normalized model times and preprocessing metadata are kept separate. See
+[MFM integration notes](docs/MFM_INTEGRATION.md) for datasets and limitations.
+
+MMFM and the MNIST latent pipeline are not integrated in this checkout.
 
 The existing real data lives in `/data/lthung/ali-cfm-data`; configure `data.root`
 or `FLOW2PC_DATA_ROOT` on other systems. Data, weights and results remain outside

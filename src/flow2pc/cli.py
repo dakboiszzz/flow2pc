@@ -1,5 +1,7 @@
 import argparse
+from dataclasses import asdict
 import json
+import os
 import sys
 
 import yaml
@@ -7,6 +9,7 @@ import yaml
 from flow2pc.data.registry import datasets
 from flow2pc.pretrain.registry import teachers
 from flow2pc.utils.config import load_config
+from flow2pc.utils.paths import REPO_ROOT
 
 
 def main(argv=None):
@@ -36,14 +39,50 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.list_models or args.list_datasets:
         registry = teachers if args.list_models else datasets
-        print(json.dumps(registry.describe(), indent=2))
+        listing = registry.describe()
+        if args.list_datasets:
+            from flow2pc.data.metric_registry import dataset_names
+
+            for name in dataset_names():
+                if name not in listing:
+                    listing[name] = {
+                        "status": "implemented",
+                        "description": "MFM dataset; available with teacher.name: mfm",
+                    }
+                else:
+                    listing[name]["description"] += " Also available for MFM."
+        print(json.dumps(listing, indent=2))
         return 0
     try:
         config = load_config(args.config, args.set)
-        if args.evaluate:
-            from flow2pc.evaluation.entrypoint import run as evaluate_checkpoint
+        if isinstance(config, tuple):
+            stage, resolved = config
+            if args.validate_only:
+                print(json.dumps({
+                    "stage": stage,
+                    "resolved": asdict(resolved) if stage == "distill" else resolved,
+                }, indent=2))
+                return 0
+            previous = os.getcwd()
+            try:
+                os.chdir(REPO_ROOT)
+                if stage == "pretrain":
+                    from flow2pc.pretrain.models.mfm.trainer import run
+                elif stage == "distill":
+                    from flow2pc.distill.mfm import run
+                else:
+                    from flow2pc.evaluation.metric_flow import evaluate_checkpoint
 
-            print(json.dumps(evaluate_checkpoint(config, args.evaluate), indent=2))
+                    print(json.dumps(evaluate_checkpoint(
+                        resolved["checkpoint"],
+                        output_dir=resolved.get("output_dir"),
+                        device=resolved.get("device", "cpu"),
+                        settings=resolved.get("params"),
+                    ), indent=2))
+                    return 0
+                print(json.dumps({"output_dir": str(run(resolved))}, indent=2))
+            finally:
+                os.chdir(previous)
             return 0
         if config["stage"] == "distill":
             from flow2pc.distill.runner import prepare, run

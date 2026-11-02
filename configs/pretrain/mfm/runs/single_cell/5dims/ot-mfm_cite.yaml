@@ -1,0 +1,13 @@
+stage: pretrain
+model:
+  name: mfm
+  params:
+    source_root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching
+    config_path: configs/pretrain/mfm/upstream/single_cell/5dims/ot-mfm_cite.yaml
+data:
+  name: cite
+  root: /data/pqhung_group/pdtung/pretrain/metric-flow-matching/data
+training: {}
+seed: 42
+output:
+  dir: outputs/pretrain/mfm/single_cell/5dims/ot-mfm_cite

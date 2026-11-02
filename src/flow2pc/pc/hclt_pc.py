@@ -276,8 +276,6 @@ class TimeDependentHCLTPC(ProbabilisticCircuit):
             log_scale_dt = torch.einsum(
                 "dhp,bp->bdh", self.log_scale_coefficients, derivative
             )
-        # Prevent numerical overflow in exp(-log_scale) and subsequent square operations
-        log_scale = log_scale.clamp(-20.0, 20.0)
         return mean, mean_dt, log_scale, log_scale_dt
 
     def _leaf_component_parameters(self, time: torch.Tensor):

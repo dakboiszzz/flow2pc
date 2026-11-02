@@ -1,3 +1,5 @@
+"""MFM evaluation and shared AFHQ decoding."""
+
 """ODE evaluation and figures shared by teacher and student stages.
 
 This package consumes velocity interfaces; it never imports PC or distillation
