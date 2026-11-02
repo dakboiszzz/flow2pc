@@ -62,6 +62,7 @@ def config(tmp_path, data_root):
     )
     raw["output"]["dir"] = str(tmp_path / "run")
     raw["logging"] = {"mode": "disabled"}
+    raw["evaluation"] = {"enabled": False}
     raw["model"]["params"].update(
         cfm_dim=8,
         interpolant_dim=8,
@@ -79,6 +80,8 @@ def config(tmp_path, data_root):
         num_ali_train_steps=1,
         num_cfm_train_steps=1,
     )
+    # This fixture explicitly exercises the older train-only data protocol.
+    raw["training"].pop("protocol", None)
     return resolve_config(raw, base=tmp_path)
 
 

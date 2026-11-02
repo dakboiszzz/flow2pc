@@ -73,3 +73,34 @@ def initialize_source(student, source, rng):
 def build_optimizer(student, lr, steps):
     optimizer = torch.optim.AdamW(student.parameters(), lr=lr, weight_decay=0.01)
     return optimizer, torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)
+
+
+def load_for_evaluation(checkpoint, teacher, dataset, device):
+    """Reload a migrated student and verify its teacher/data binding."""
+    saved = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    if saved.get("binding", {}).get("dataset") != dataset.contract():
+        raise ValueError(
+            "Student checkpoint uses a different dataset/split/preprocessing contract"
+        )
+    expected = teacher.manifest.get(
+        "checkpoint_sha256",
+        teacher.manifest.get("legacy_provenance", {}).get("checkpoint_sha256"),
+    )
+    if saved["binding"].get("teacher_sha256") != expected:
+        raise ValueError("Student checkpoint was distilled from a different teacher")
+    if saved["binding"].get("legacy_provenance") != teacher.manifest.get(
+        "legacy_provenance"
+    ):
+        raise ValueError("Student legacy teacher/generator/metadata binding differs")
+    config = saved["model_config"]
+    student = build_student(
+        config["parents"],
+        {
+            key: config[key]
+            for key in ("num_latents", "time_embedding_dim", "time_feature_seed")
+            if key in config
+        },
+        clamp_derivative=config.get("clamp_scale_derivative", False),
+    ).to(device)
+    student.load_state_dict(saved["state_dict"], strict=True)
+    return student.eval(), saved["step"]

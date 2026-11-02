@@ -94,6 +94,7 @@ def resolve_config(raw, *, base):
             "distillation",
             "output",
             "logging",
+            "evaluation",
         },
         {"stage", "output"},
     )
@@ -112,6 +113,13 @@ def resolve_config(raw, *, base):
     if logging.setdefault("mode", "disabled") not in ("disabled", "offline", "online"):
         raise ValueError("logging.mode must be disabled, offline or online")
     logging.setdefault("project", "flow2pc")
+    from flow2pc.evaluation.config import resolve_evaluation
+
+    config["evaluation"] = resolve_evaluation(config.get("evaluation", {}))
+    if "image_dir" in config["evaluation"]:
+        config["evaluation"]["image_dir"] = resolve_path(
+            config["evaluation"]["image_dir"], base, "evaluation.image_dir"
+        )
     if config["stage"] == "pretrain":
         if {"teacher", "student", "distillation"} & config.keys():
             raise ValueError("Pretrain cannot contain distillation-stage keys")

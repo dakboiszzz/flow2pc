@@ -1,0 +1,69 @@
+# Standalone OTP-FM teacher on the shared experiment data.
+# Native W2Inf/MSE consistency training; existing velocity-ODE W1 EMD evaluation.
+stage: pretrain
+seed: 42
+model:
+  name: otpfm
+  params:
+    recipe: W2Inf
+    native_config:
+      potential: w2inf
+      ot_coupling: false
+      solver_type: direct
+      lossfn: mse
+      time_sampler: uniform_scaled_marginal
+      diag_prob: 0.75
+      ema_decay: 0.99
+      ema_ot: true
+      jvp_clamp: 100.0
+      otp_alpha_slope: 6.0
+      x_emb_dim: 64
+      t_emb_dim: 64
+      activation: silu
+      layernorm: true
+      residual_every: 2
+      dropout: 0.0
+      weight_decay: 0.0
+      grad_clip: 0.0
+      hidden_dim: 256
+      num_hidden_layers: 4
+      lr: 0.001
+      batch_size: 128
+      strength: 100.0
+      width_multiplier: 1.0
+      lambda_type: gaussian
+      consistency_loss: imf
+      otp_alpha_mean_scale: 1.0
+data:
+  name: eb
+  root: /data/lthung/ali-cfm-data
+  params:
+    heldout_index: 1
+    normalise: true
+    whiten: true
+    validation_fraction: 0.05
+    test_fraction: 0.05
+training:
+  device: cuda:0
+  steps: 10000
+  population_split: train
+logging:
+  mode: online
+  project: flow2pc
+  name: otpfm-eb-h256-l4-lr0.001-w100-seed42
+output:
+  dir: /data/lthung/flow2pc/otp-fm/pretrain/eb/W2Inf/seed42
+evaluation:
+  enabled: true
+  num_samples: 512
+  metric_samples: 512
+  seed: 2026
+  batch_size: 64
+  tolerance: 1.0e-05
+  max_nfe: 50000
+  solver: dopri5
+  ode_steps: 100
+  metric_space: historical
+  source_split: all
+  reference_split: all
+  protocol: shared_ode

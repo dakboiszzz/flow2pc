@@ -1,4 +1,6 @@
-# Supplied ../ali-cfm/train_teacher.py knot networks and losses; fresh independent analytic noisy marginals; recorded snapshot seed for student queries.
+# Native ../ali-cfm/train_teacher.py knot loop: full NumPy noisy curves per
+# batch, then float32 conversion; lifted y2=sin(...)+1, GAN followed by CFM.
+# Snapshot sample counts/splits serve saved evaluation/student data only.
 stage: pretrain
 seed: 42
 model:
@@ -49,3 +51,18 @@ logging:
   name: alicfm-knot-seed42
 output:
   dir: /data/lthung/flow2pc/framework/pretrain/alicfm/knot/seed42
+
+# Post-training ODE evaluation and images; never contributes to the student loss.
+evaluation:
+  enabled: true
+  num_samples: 0
+  metric_samples: 512
+  batch_size: 64
+  seed: 2026
+  solver: rk4
+  tolerance: 1.0e-05
+  ode_steps: 100
+  max_nfe: 50000
+  metric_space: historical
+  source_split: all
+  reference_split: all

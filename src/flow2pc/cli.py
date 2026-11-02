@@ -18,10 +18,16 @@ def main(argv=None):
     action.add_argument("--config")
     action.add_argument("--list-models", action="store_true")
     action.add_argument("--list-datasets", action="store_true")
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--validate-only",
         action="store_true",
         help="Resolve config and data metadata without training or writing outputs",
+    )
+    mode.add_argument(
+        "--evaluate",
+        choices=("teacher", "student"),
+        help="Evaluate existing checkpoints and generate figures without training",
     )
     parser.add_argument(
         "--set",

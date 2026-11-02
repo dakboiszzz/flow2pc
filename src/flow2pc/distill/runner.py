@@ -57,6 +57,9 @@ def save(path, payload):
 
 def run(config):
     teacher, dataset, sampler = prepare(config)
+    from flow2pc.evaluation.figures import validate_resources
+
+    validate_resources(dataset, config.get("evaluation", {"enabled": False}))
     cfg = config["distillation"]
     device = next(teacher.parameters()).device
     output = Path(config["output"]["dir"])
@@ -161,17 +164,6 @@ def run(config):
             "binding_sha256": identity(binding),
         },
     )
-    if start > cfg["steps"]:
-        atomic_json(
-            output / "status.json",
-            {
-                "status": "complete",
-                "steps": cfg["steps"],
-                "best_selection_score": best,
-                "best_step": best_step,
-            },
-        )
-        return output / "checkpoints/best.pt"
     atomic_json(output / "status.json", {"status": "running"})
     logger = None
     try:
@@ -196,6 +188,9 @@ def run(config):
                 "best_step": best_step,
             }
 
+        # Allow an OOM on the first update to resume without abandoning this run.
+        if previous is None:
+            save(last_path, checkpoint(0))
         for step in range(start, cfg["steps"] + 1):
             student.train()
             batch = sample_batch(
@@ -248,6 +243,26 @@ def run(config):
                 or "validation/selection_score" in row
             ):
                 logger.log(row)
+        if config.get("evaluation", {}).get("enabled", False):
+            from flow2pc.evaluation.runner import evaluate
+
+            selected = torch.load(
+                output / "checkpoints/best.pt", map_location="cpu", weights_only=True
+            )
+            student.load_state_dict(selected["state_dict"], strict=True)
+            reference = (
+                Path(config["teacher"]["checkpoint"]).resolve().parent.parent / "eval"
+            )
+            evaluate(
+                teacher,
+                dataset,
+                config["evaluation"],
+                output / "eval",
+                student=student,
+                logger=logger,
+                checkpoint_step=selected["step"],
+                reference_dir=reference,
+            )
         if teacher.training or any(p.requires_grad for p in teacher.parameters()):
             raise RuntimeError("Frozen teacher contract was changed")
         if logger.run is not None:

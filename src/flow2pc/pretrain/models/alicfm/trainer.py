@@ -1,11 +1,13 @@
 """Method-owned ALI pretraining, adversarial learning, then CFM regression.
 
 This orchestrator calls the migrated source loops; it does not replace their
-losses with a generic flow matcher. It supports one held-out CITE/Multi fold per run.
+losses with a generic flow matcher. Dataset profiles retain their original staged
+training definitions; each command trains one configured teacher/fold.
 """
 
 import json
 import math
+import random
 import subprocess
 from pathlib import Path
 
@@ -16,6 +18,7 @@ import yaml
 from flow2pc.pretrain.models.alicfm.profiles import make_models, profile_for, train_knot
 from flow2pc.utils.checkpoint import atomic_json, atomic_path, save_teacher, sha256
 from flow2pc.utils.seed import seed_everything
+from flow2pc.utils.tracking import LocalLogger
 
 MODEL_KEYS = {
     "cfm_dim",
@@ -58,42 +61,13 @@ class MethodConfig(dict):
             raise AttributeError(key) from None
 
 
-class LocalLogger:
-    def __init__(self, directory, config, append=False):
-        self.handle = (directory / "metrics.jsonl").open("a" if append else "w")
-        self.run = None
-        try:
-            if config["logging"]["mode"] != "disabled":
-                import wandb
-
-                self.run = wandb.init(
-                    **config["logging"], config=config, dir=str(directory)
-                )
-        except BaseException:
-            self.handle.close()
-            raise
-
-    def log(self, row):
-        if any(
-            isinstance(v, (int, float)) and not math.isfinite(v) for v in row.values()
-        ):
-            raise ValueError("Non-finite ALI-CFM training metric")
-        self.handle.write(json.dumps(row, allow_nan=False) + "\n")
-        self.handle.flush()
-        if self.run is not None:
-            self.run.log(row)
-
-    def close(self, failed=False):
-        self.handle.close()
-        if self.run is not None:
-            self.run.finish(exit_code=1 if failed else 0)
 
 
 class ALICFM:
     def validate(self, config):
         model, train = config["model"]["params"], config["training"]
         optional_model = {"profile", "cfm_coordinates"}
-        optional_training = {"samples_per_marginal"}
+        optional_training = {"samples_per_marginal", "protocol"}
         if (
             set(model) - optional_model != MODEL_KEYS
             or set(train) - TRAIN_KEYS - optional_training
@@ -157,6 +131,19 @@ class ALICFM:
         ):
             raise ValueError("Unsupported ALI-CFM coupling")
         profile = profile_for(config["data"]["name"])
+        protocol = train.get("protocol", "framework")
+        if protocol not in ("framework", "native", "marginal"):
+            raise ValueError("Unknown ALI-CFM training protocol")
+        if protocol == "marginal":
+            if config["data"]["name"] not in ("gom", "beijing"):
+                raise ValueError("The marginal adaptation is for GOM/Beijing")
+            if config["data"]["params"].get("preprocessing_protocol") != "native_all":
+                raise ValueError("Marginal adaptation requires native_all preprocessing")
+        if protocol == "native":
+            if config["data"]["name"] not in ("cite", "multi", "st", "cell_tracking"):
+                raise ValueError("Native real-data protocol supports CITE/Multi/ST/tracking")
+            if config["data"]["params"].get("preprocessing_protocol") != "native_all":
+                raise ValueError("Native training requires native_all preprocessing")
         if profile == "st":
             if (
                 model["reg_term_type"] != "piecewise"
@@ -209,6 +196,25 @@ class ALICFM:
             raise ValueError(
                 "The original knot trainer uses linear/l2, no OT and no time smoothing"
             )
+        if profile == "knot":
+            params = config["data"]["params"]
+            if (
+                params.get("heldout_index") is not None
+                or params.get("normalise", True)
+                or params.get("whiten", False)
+                or "samples_per_marginal" in train
+            ):
+                raise ValueError(
+                    "The native knot trainer requires every analytic time, raw coordinates "
+                    "and fresh full-curve batches; snapshot subsets/scaling are unsupported"
+                )
+            if train["num_ali_pretrain_steps"] != 0 or model["gan_loss"] not in (
+                "GAN",
+                "vanilla",
+            ):
+                raise ValueError(
+                    "The native knot trainer has no regression pretrain and uses vanilla GAN"
+                )
         if model["reg_term_type"] == "picewise_oskar_version" and config["data"][
             "params"
         ].get("heldout_index") not in (1, 2):
@@ -218,6 +224,9 @@ class ALICFM:
 
     def fit(self, dataset, config, run_dir):
         self.validate(config)
+        from flow2pc.evaluation.figures import validate_resources
+
+        validate_resources(dataset, config.get("evaluation", {"enabled": False}))
         # Import optional method dependencies only for an actual training call.
         from torchcfm.conditional_flow_matching import OTPlanSampler
 
@@ -232,13 +241,23 @@ class ALICFM:
         cfg.dim = dataset.dim
         cfg.profile = profile_for(dataset.metadata.name)
         cfg.cfm_coordinates = cfg.get("cfm_coordinates", "model")
+        native = cfg.get("protocol") in ("native", "marginal")
+        ot_sampler = OTPlanSampler("exact", reg=0.1) if native else None
+        plot_function = None
+        if cfg.get("protocol") == "native" and cfg.profile != "cell_tracking":
+            from flow2pc.pretrain.models.alicfm.training_plots import native_plot_function
+
+            plot_function = native_plot_function(dataset, config.get("evaluation", {}))
         clouds = [
-            dataset.get_marginal(i, "train").materialize()
+            dataset.get_marginal(i, "all" if native else "train").materialize()
             for i in range(len(dataset.metadata.model_times))
         ]
         if any(len(clouds[i]) == 0 for i in dataset.observed):
             raise ValueError("Empty observed training marginal")
         seed_everything(config["seed"])
+        if native:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
         device = cfg.device
         subset_indices = None
         if "samples_per_marginal" in cfg:
@@ -248,7 +267,10 @@ class ALICFM:
                     "Teacher subset budget exceeds an observed training pool"
                 )
             subset_indices = {
-                str(i): np.random.choice(len(clouds[i]), budget, replace=False).tolist()
+                str(i): np.random.choice(
+                    np.arange(len(clouds[i])) if native else len(clouds[i]),
+                    budget, replace=False,
+                ).tolist()
                 for i in dataset.observed
             }
             clouds = [
@@ -261,18 +283,27 @@ class ALICFM:
             profile=cfg.profile,
             cfm_coordinates=cfg.cfm_coordinates,
         )
-        interpolant, discriminator, field = make_models(model_config, device)
-        optimizers = {
-            "pretrain": torch.optim.Adam(interpolant.parameters(), lr=cfg.pretrain_lr),
-            "generator": torch.optim.Adam(
-                interpolant.parameters(), lr=cfg.interpolant_gen_lr
-            ),
-            "discriminator": torch.optim.Adam(
-                discriminator.parameters(), lr=cfg.interpolant_disc_lr
-            ),
-            "cfm": torch.optim.Adam(field.parameters(), lr=cfg.cfm_lr),
-        }
-        ot_sampler = OTPlanSampler("exact", reg=0.1)
+        if native:
+            model_config["native_training"] = True
+        if native:
+            interpolant, discriminator, field, optimizers = make_models(
+                model_config, device, training=cfg
+            )
+        else:
+            interpolant, discriminator, field = make_models(model_config, device)
+        if not native:
+            optimizers = {
+                "pretrain": torch.optim.Adam(interpolant.parameters(), lr=cfg.pretrain_lr),
+                "generator": torch.optim.Adam(
+                    interpolant.parameters(), lr=cfg.interpolant_gen_lr
+                ),
+                "discriminator": torch.optim.Adam(
+                    discriminator.parameters(), lr=cfg.interpolant_disc_lr
+                ),
+                "cfm": torch.optim.Adam(field.parameters(), lr=cfg.cfm_lr),
+            }
+        if not native:
+            ot_sampler = OTPlanSampler("exact", reg=0.1)
         # Original optimizer algorithms and all three staged loops are preserved.
         run_dir.mkdir(parents=True, exist_ok=False)
         with atomic_path(run_dir / "resolved_config.yaml") as temporary:
@@ -280,7 +311,18 @@ class ALICFM:
         atomic_json(run_dir / "status.json", {"status": "running"})
         logger = None
         try:
+            if native:
+                # The native driver initializes W&B before seeding. Our logger
+                # starts later, so preserve the post-model random streams.
+                rng = (random.getstate(), np.random.get_state(), torch.get_rng_state())
+                cuda_rng = torch.cuda.get_rng_state(device) if torch.device(device).type == "cuda" else None
             logger = LocalLogger(run_dir, config)
+            if native:
+                random.setstate(rng[0])
+                np.random.set_state(rng[1])
+                torch.set_rng_state(rng[2])
+                if cuda_rng is not None:
+                    torch.cuda.set_rng_state(cuda_rng, device)
             if cfg.profile == "knot":
                 train_knot(
                     interpolant, discriminator, field, optimizers, dataset, cfg, logger
@@ -298,6 +340,7 @@ class ALICFM:
                     cfg,
                     config["seed"],
                     logger,
+                    plot_function,
                 )
             provenance_path = Path(__file__).with_name("SOURCE_PROVENANCE.json")
             provenance = json.loads(provenance_path.read_text())
@@ -331,7 +374,16 @@ class ALICFM:
                 "code_revision": revision,
                 "source_provenance": provenance,
                 "teacher_subset_indices": subset_indices,
-                "training_protocol": f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages",
+                "training_protocol": (
+                    "knot; native_full_curve_numpy_batches; raw_coordinates; GAN_then_CFM"
+                    if cfg.profile == "knot"
+                    else (
+                        ("adapted_transport; full_observed_pools; all_marginal_standardization; original_ALI_stages; final_figures_only"
+                         if cfg.get("protocol") == "marginal" else
+                         f"one_fold; {cfg.profile}; native_observed_pools; native_sequential_preprocessing; native_callbacks")
+                        if native else f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages"
+                    )
+                ),
                 "distillation_sampler": {
                     "single_cell": "mmot_middle",
                     "st": "independent",
@@ -339,6 +391,26 @@ class ALICFM:
                     "cell_tracking": "border_ot",
                 }[cfg.profile],
             }
+            if native:
+                manifest["native_training"] = {
+                    "observed_indices": dataset.observed,
+                    "training_counts": [len(clouds[i]) for i in dataset.observed],
+                    "scaler_fit_scope": "all marginals including held-out time",
+                    "gan_plot_frequency": 5000 if plot_function is not None else 0,
+                    "fold_seed_scope": ("fixed multiple temporal holdouts; one seed" if cfg.get("protocol") == "marginal"
+                                        else "one seeded fold; defaults use the first native fold"),
+                }
+            if cfg.profile == "knot":
+                manifest["training_sampling"] = {
+                    "implementation": "_source/knot_training.py:get_knot_data",
+                    "curve_size": len(dataset.metadata.model_times),
+                    "noise_std": dataset.params.get("noise_std", 0.01),
+                    "batch_size": cfg.batch_size,
+                    "noise_rng": "numpy.random global state; full x noise then full y noise per curve",
+                    "gan_time_rng": "numpy.random.randint after constructing the entire batch",
+                    "cfm_time_rng": "torch.rand on training device after constructing the entire batch",
+                    "snapshot_pools_used_for_training": False,
+                }
 
             def state(model):
                 return {
@@ -360,6 +432,29 @@ class ALICFM:
                 manifest,
                 dataset.preprocessing,
             )
+            if config.get("evaluation", {}).get("enabled", False):
+                from flow2pc.evaluation.runner import evaluate
+
+                evaluate(
+                    self.load(checkpoint, device),
+                    dataset,
+                    config["evaluation"],
+                    run_dir / "eval",
+                    logger=logger,
+                )
+            if logger.run is not None:
+                import wandb
+
+                artifact = wandb.Artifact(f"{logger.run.id}-teacher", type="model")
+                for name in (
+                    "checkpoints/last.pt",
+                    "manifest.json",
+                    "preprocessing.json",
+                    "resolved_config.yaml",
+                ):
+                    artifact.add_file(str(run_dir / name))
+                with logger.remote("teacher artifact upload"):
+                    logger.run.log_artifact(artifact)
             logger.close()
             logger = None
             atomic_json(run_dir / "status.json", {"status": "complete"})
@@ -385,6 +480,7 @@ class ALICFM:
         cfg,
         seed,
         logger,
+        plot_function=None,
     ):
         ali_cfg = cfg
         if cfg.profile == "st":
@@ -404,6 +500,19 @@ class ALICFM:
             ali_cfg,
             logger=logger,
         )
+        native = cfg.get("protocol") in ("native", "marginal")
+        plot_kwargs = {"plot_freaquency": 0}
+        if plot_function is not None:
+            from flow2pc.pretrain.models.alicfm.training_plots import bind_logger
+
+            plot_kwargs = {
+                "plot_freaquency": 5000,
+                "plot_fn": bind_logger(plot_function, logger),
+            }
+        min_max = None
+        if native and dataset.preprocessing["normalise"]:
+            bounds = dataset.preprocessing["min_max"]
+            min_max = tuple(torch.tensor(bounds[k], dtype=torch.float32) for k in ("min", "max"))
         stages.train_interpolant_with_gan(
             interpolant,
             discriminator,
@@ -414,10 +523,10 @@ class ALICFM:
             "ali/gan",
             dataset.observed,
             seed,
-            None,
+            min_max,
             ali_cfg,
-            plot_freaquency=0,
             logger=logger,
+            **plot_kwargs,
         )
         if cfg.profile in ("st", "cell_tracking"):
             if cfg.profile == "st":
@@ -431,7 +540,8 @@ class ALICFM:
                 if cfg.profile == "cell_tracking"
                 else {}
             )
-            interpolant.requires_grad_(False)
+            if not native:
+                interpolant.requires_grad_(False)
             train_ot_cfm(
                 field,
                 optimizers["cfm"],
@@ -439,7 +549,7 @@ class ALICFM:
                 ot_sampler,
                 clouds,
                 cfg.batch_size,
-                (shift, shift + scale),
+                min_max if native else (shift, shift + scale),
                 cfg.num_cfm_train_steps,
                 metric_prefix="ali/cfm",
                 ot=cfg.cfm_ot,
