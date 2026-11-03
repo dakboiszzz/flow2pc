@@ -108,8 +108,6 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
                     .square()
                     .mean()
                     .item(),
-                    "nll_per_dimension": -student.log_prob(reference, t).mean().item()
-                    / data.dim,
                 }
                 if "mean" in data.normalization:
                     mean = torch.tensor(data.normalization["mean"], device=device)
@@ -159,25 +157,22 @@ def evaluate_checkpoint(
     """Evaluate or decode an existing student without another training step."""
     import json
 
+    from flow2pc.distill.runner import _identity, load_resources
+    from flow2pc.distill.student import build_student_from_config
     from flow2pc.utils.experiment import ExperimentConfig
-    from flow2pc.distill.mfm import (
-        _identity,
-        build_student,
-        load_resources,
-        validate_config,
-    )
+    from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
 
     checkpoint_path = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if checkpoint.get("model_type") != "metric_pc_distill":
         raise ValueError("Expected a metric_pc_distill student checkpoint")
-    config = ExperimentConfig(**checkpoint["training_config"])
+    config = ExperimentConfig(**checkpoint_training_config(checkpoint))
     validate_config(config)
     device = torch.device(device)
     teacher, data = load_resources(config, device)
     if checkpoint["identity"] != _identity(teacher, data):
         raise ValueError("Teacher/data identity differs from the distilled checkpoint")
-    student = build_student(checkpoint["model_config"]).to(device)
+    student = build_student_from_config(checkpoint["model_config"]).to(device)
     student.load_state_dict(checkpoint["state_dict"])
     destination = (
         Path(output_dir)

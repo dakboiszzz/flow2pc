@@ -1,23 +1,35 @@
-"""Shared frozen-ALI-teacher distillation; only student velocity MSE is optimized."""
+"""Frozen-teacher distillation runners for ALI-CFM and MFM."""
 
+import csv
+import json
+import math
+import random
+from dataclasses import asdict
 from pathlib import Path
 
+import numpy as np
 import torch
 import yaml
 
+from flow2pc.data.metric_registry import load_dataset
 from flow2pc.data.restore import restore_dataset
-from flow2pc.distill.sampling import sample_batch, velocity_mse
+from flow2pc.distill.sampling import sample_ali_batch, sample_mfm_batch, velocity_mse
 from flow2pc.distill.student import (
     build_optimizer,
     build_student,
+    build_student_from_config,
     initialize_source,
     learn_topology,
+    student_config,
 )
 from flow2pc.distill.validation import prepare_validation, validate
 from flow2pc.pretrain.models.alicfm.trainer import LocalLogger
+from flow2pc.pretrain.models.mfm.checkpoint_adapter import load_teacher as load_mfm_teacher
 from flow2pc.pretrain.runner import load_teacher
 from flow2pc.utils.checkpoint import atomic_json, atomic_path, identity, sha256
+from flow2pc.utils.experiment import ExperimentConfig
 from flow2pc.utils.seed import seed_everything
+from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
 
 
 def prepare(config):
@@ -55,7 +67,7 @@ def save(path, payload):
         torch.save(payload, temporary)
 
 
-def run(config):
+def _run_ali(config):
     teacher, dataset, sampler = prepare(config)
     from flow2pc.evaluation.figures import validate_resources
 
@@ -193,7 +205,7 @@ def run(config):
             save(last_path, checkpoint(0))
         for step in range(start, cfg["steps"] + 1):
             student.train()
-            batch = sample_batch(
+            batch = sample_ali_batch(
                 teacher, dataset, pools, cfg["batch_size"], rng, sampler
             )
             optimizer.zero_grad(set_to_none=True)
@@ -296,3 +308,309 @@ def run(config):
             logger.close(failed=True)
         raise
     return output / "checkpoints/best.pt"
+
+
+METRIC_FIELDS = ["step", "loss", "velocity_mse", "gradient_norm", "validation_loss"]
+
+
+def metrics_path(output):
+    """Preserve legacy CSVs and append only to a matching velocity-only schema."""
+    path = output / "metrics.csv"
+    if path.exists() and path.stat().st_size:
+        with path.open(newline="") as stream:
+            header = next(csv.reader(stream))
+        if "source_nll_per_dimension" in header:
+            path = output / "metrics_velocity.csv"
+    if path.exists() and path.stat().st_size:
+        with path.open(newline="") as stream:
+            if next(csv.reader(stream)) != METRIC_FIELDS:
+                raise ValueError(f"Incompatible metrics header: {path}")
+    return path
+
+
+def _json(value):
+    if isinstance(value, dict):
+        return {str(k): _json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json(v) for v in value]
+    if isinstance(value, (Path, torch.device)):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    if hasattr(value, "__dict__"):
+        return _json(vars(value))
+    return value
+
+
+def _identity(teacher, data):
+    return {
+        "flow": teacher.metadata["flow_sha256"],
+        "geopath": teacher.metadata["geopath_sha256"],
+        "data": data.source_info["snapshots_sha256"],
+        "split": data.split_indices,
+        "normalization": data.normalization,
+        "heldout": data.heldout_indices,
+    }
+
+
+def _rng():
+    return {
+        "torch": torch.get_rng_state(),
+        "numpy": np.random.get_state(),
+        "python": random.getstate(),
+        "cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+    }
+
+
+def _restore_rng(state):
+    torch.set_rng_state(state["torch"].cpu())
+    np.random.set_state(state["numpy"])
+    random.setstate(state["python"])
+    if state.get("cuda") is not None and torch.cuda.is_available():
+        torch.cuda.set_rng_state_all([item.cpu() for item in state["cuda"]])
+
+
+def load_resources(config, device):
+    """Load explicitly supplied teacher files, then its matching data coordinates."""
+    training = config.training
+    seed = int(training.get("seed", 42))
+    teacher_options = {
+        **config.teacher.get("options", {}),
+        "name": config.teacher["name"],
+        "checkpoint_path": config.teacher["checkpoint_path"],
+        "dataset": config.dataset["name"],
+    }
+    teacher = load_mfm_teacher(teacher_options, device)
+    data_options = {
+        **config.dataset.get("options", {}),
+        "name": config.dataset["name"],
+        "batch_size": int(training.get("batch_size", 128)),
+        "seed": seed,
+    }
+    if config.dataset.get("data_dir") is not None:
+        data_options["data_dir"] = config.dataset["data_dir"]
+    data = load_dataset(data_options, {"teacher_metadata": teacher.metadata})
+    return teacher, data
+
+
+def _run_mfm(config):
+    validate_config(config)
+    training = config.training
+    seed = int(training.get("seed", 42))
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    name = training.get("device", "auto")
+    device = torch.device(
+        "cuda"
+        if name == "auto" and torch.cuda.is_available()
+        else "cpu"
+        if name == "auto"
+        else name
+    )
+    output = Path(
+        training.get(
+            "output_dir",
+            f"outputs/runs/metric/{config.dataset['name']}_{config.student.get('pc_structure', 'hclt')}",
+        )
+    )
+    resume_path = training.get("resume_checkpoint")
+    if output.exists() and any(output.iterdir()) and not resume_path:
+        raise FileExistsError(f"Refusing to overwrite nonempty run: {output}")
+    teacher, data = load_resources(config, device)
+    identity = _identity(teacher, data)
+    checkpoint = (
+        torch.load(resume_path, map_location="cpu", weights_only=False)
+        if resume_path
+        else None
+    )
+    if checkpoint and checkpoint.get("identity") != identity:
+        raise ValueError(
+            "Resume teacher, data, normalization, or split differs from checkpoint"
+        )
+    if checkpoint and checkpoint.get("student_settings") != config.student:
+        raise ValueError("Resume student configuration differs from checkpoint")
+    if checkpoint:
+        checkpoint_training_config(checkpoint, resume=True)
+    model_config = (
+        checkpoint["model_config"]
+        if checkpoint
+        else student_config(config.student, data, seed)
+    )
+    student = build_student_from_config(model_config).to(device)
+    optimizer = torch.optim.AdamW(
+        student.parameters(), lr=float(training.get("lr", 0.001))
+    )
+    start, best = 0, math.inf
+    if checkpoint:
+        student.load_state_dict(checkpoint["state_dict"])
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        start, best = checkpoint["step"], checkpoint["best_validation_loss"]
+        _restore_rng(checkpoint["rng"])
+    total = int(training.get("steps", 20000))
+    if start >= total:
+        raise ValueError("steps must exceed the resumed checkpoint step")
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "checkpoints").mkdir(exist_ok=True)
+    manifest = {
+        "source_info": data.source_info,
+        "normalization": data.normalization,
+        "split_indices": data.split_indices,
+        "times": data.times.tolist(),
+    }
+    (output / "data_manifest.json").write_text(
+        json.dumps(_json(manifest), indent=2) + "\n"
+    )
+    (output / "config.json").write_text(
+        json.dumps(
+            _json(
+                {
+                    "experiment": asdict(config),
+                    "teacher_metadata": teacher.metadata,
+                    "model_config": model_config,
+                }
+            ),
+            indent=2,
+        )
+        + "\n"
+    )
+    if model_config["name"] == "hclt":
+        torch.save(
+            {
+                "parents": model_config["parents"],
+                "identity": identity,
+                "estimator": model_config["topology_estimator"],
+            },
+            output / "topology.pt",
+        )
+    tracker = None
+    if config.wandb.get("mode", "disabled") != "disabled":
+        import wandb
+
+        tracker = wandb.init(
+            project=config.wandb.get("project", "flow2pc"),
+            mode=config.wandb["mode"],
+            group=config.wandb.get("group", "metric-flow"),
+            name=config.wandb.get("run_name"),
+            config=_json(asdict(config)),
+            dir=str(output.resolve()),
+        )
+
+    def save(filename, step):
+        torch.save(
+            {
+                "model_type": "metric_pc_distill",
+                "model_config": model_config,
+                "student_settings": config.student,
+                "state_dict": student.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "step": step,
+                "best_validation_loss": best,
+                "identity": identity,
+                "rng": _rng(),
+                "training_config": asdict(config),
+                "teacher_metadata": teacher.metadata,
+                "data_manifest": manifest,
+            },
+            output / "checkpoints" / filename,
+        )
+
+    log_path = metrics_path(output)
+    needs_header = not log_path.exists() or log_path.stat().st_size == 0
+    batch = int(training.get("batch_size", 128))
+    try:
+        with log_path.open("a", newline="") as stream:
+            writer = csv.DictWriter(
+                stream,
+                fieldnames=METRIC_FIELDS,
+            )
+            if needs_header:
+                writer.writeheader()
+            for step in range(start + 1, total + 1):
+                student.train()
+                optimizer.zero_grad(set_to_none=True)
+                query = sample_mfm_batch(teacher, data, batch, device)
+                loss = velocity_mse(student, teacher, query)
+                components = {"velocity_mse": loss.detach().item()}
+                loss.backward()
+                norm = torch.nn.utils.clip_grad_norm_(
+                    student.parameters(),
+                    float(training.get("gradient_clip", 1.0)),
+                    error_if_nonfinite=True,
+                )
+                optimizer.step()
+                validation = None
+                if (
+                    step % int(training.get("validate_every", 1000)) == 0
+                    or step == total
+                ):
+                    student.eval()
+                    with torch.no_grad(), evaluation_seed(1234, device):
+                        validation = float(
+                            np.mean(
+                                [
+                                    velocity_mse(
+                                        student,
+                                        teacher,
+                                        sample_mfm_batch(
+                                            teacher,
+                                            data,
+                                            batch,
+                                            device,
+                                            validation=True,
+                                            interval_index=index,
+                                        ),
+                                    ).item()
+                                    for index in range(len(data.observed_indices) - 1)
+                                ]
+                            )
+                        )
+                    if validation < best:
+                        best = validation
+                        save("best.pt", step)
+                if (
+                    step % int(training.get("log_every", 100)) == 0
+                    or validation is not None
+                    or step == total
+                ):
+                    row = {
+                        "step": step,
+                        "loss": loss.item(),
+                        **components,
+                        "gradient_norm": float(norm),
+                        "validation_loss": validation,
+                    }
+                    writer.writerow(row)
+                    stream.flush()
+                    if tracker:
+                        tracker.log(
+                            {k: v for k, v in row.items() if v is not None}, step=step
+                        )
+                    print(
+                        f"step {step}/{total}: loss={loss.item():.6g}, validation={validation}",
+                        flush=True,
+                    )
+                if (
+                    step % int(training.get("checkpoint_every", 5000)) == 0
+                    or step == total
+                ):
+                    save(f"step_{step}.pt", step)
+                    save("last.pt", step)
+        if config.evaluation.get("enabled", True):
+            report = evaluate(student, teacher, data, config.evaluation, device, output)
+            (output / "evaluation.json").write_text(
+                json.dumps(report, indent=2, allow_nan=False) + "\n"
+            )
+    finally:
+        if tracker:
+            tracker.finish()
+    return output
+
+
+def run(config):
+    """Dispatch distillation using the existing method-specific config contract."""
+    if isinstance(config, ExperimentConfig):
+        return _run_mfm(config)
+    if isinstance(config, dict):
+        return _run_ali(config)
+    raise TypeError(f"Unsupported distillation config type: {type(config).__name__}")

@@ -2,7 +2,7 @@
 
 import torch
 
-from flow2pc.distill.sampling import draw, sample_batch
+from flow2pc.distill.sampling import draw, sample_ali_batch
 
 
 @torch.no_grad()
@@ -10,7 +10,7 @@ def prepare_validation(teacher, dataset, pools, settings, seed, sampler):
     rng = torch.Generator().manual_seed(seed)
     groups = {}
     batches = [
-        sample_batch(
+        sample_ali_batch(
             teacher,
             dataset,
             pools,
