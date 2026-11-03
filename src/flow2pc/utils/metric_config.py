@@ -10,7 +10,7 @@ import yaml
 from flow2pc.utils.experiment import ExperimentConfig
 MODELS = {"mfm": {"load": True, "pretrain": True}}
 
-DATASETS = ('arch', 'sphere', 'cite', 'multi', 'eb', 'lidar', 'afhq')
+DATASETS = ('arch', 'sphere', 'cite', 'multi', 'eb', 'lidar', 'afhq', 'mfm_snapshots')
 
 
 def mapping(value, label):

@@ -1,5 +1,10 @@
 # MFM integration
 
+The additional local snapshot workflow is documented in
+[MFM local data](MFM_LOCAL_DATA.md). It covers 20 non-AFHQ profiles with explicit
+splits/time grids, paired checkpoint export and both retained PC students.
+The native launcher described below retains its historical behavior.
+
 Method-owned code lives under `src/flow2pc/pretrain/models/mfm/`, following
 the same organization as ALI-CFM:
 
@@ -59,9 +64,9 @@ flow/geopath pair, records their hashes, and freezes both networks.
 MFM data loading retains the source's ordinal unit-interval model times. It
 records original observation labels separately as physical times where numeric,
 plus the split indices, normalization and source file hashes. AFHQ image classes
-are labels, not physical times. The MFM student loss is velocity MSE plus
-`source_nll_weight` times earliest-marginal NLL. ALI-CFM continues to use its
-existing frozen-teacher velocity MSE objective.
+are labels, not physical times. The MFM student loss is velocity MSE only;
+source NLL has been retired. ALI-CFM also uses its existing frozen-teacher
+velocity MSE objective.
 
 Existing whitened MFM checkpoints were trained with the upstream scaler fitted
 on all source frames, including temporal holdouts. The adapter records

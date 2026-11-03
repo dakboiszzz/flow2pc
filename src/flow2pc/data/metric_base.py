@@ -36,3 +36,19 @@ class DatasetBundle:
         return snapshots[0], snapshots[-1]
 
 
+@dataclass
+class MetricDatasetBundle(DatasetBundle):
+    """Marginal pools and split metadata shared by metric data loaders."""
+
+    marginals: list = field(default_factory=list)
+    train_marginals: list = field(default_factory=list)
+    validation_marginals: list = field(default_factory=list)
+    heldout_indices: list = field(default_factory=list)
+    normalization: dict = field(default_factory=dict)
+    split_indices: dict = field(default_factory=dict)
+
+    @property
+    def observed_indices(self):
+        return [i for i in range(len(self.marginals)) if i not in self.heldout_indices]
+
+

@@ -39,6 +39,10 @@ def _mapping(value, label, allowed, required=()):
 
 def prepare(config):
     """Resolve a native MFM command without importing the trainer or writing data."""
+    if config.get("model", {}).get("params", {}).get("backend") == "snapshots":
+        from flow2pc.pretrain.models.mfm.snapshots import prepare as prepare_snapshots
+
+        return prepare_snapshots(config)
     _mapping(config, "MFM config", {"stage", "model", "data", "training", "seed", "output"},
              {"stage", "model", "data", "training", "output"})
     model = _mapping(config["model"], "model", {"name", "params"}, {"name"})
@@ -124,6 +128,10 @@ def _prepare_output_data(resolved):
 
 
 def run(resolved):
+    if resolved.get("backend") == "snapshots":
+        from flow2pc.pretrain.models.mfm.snapshots import run as run_snapshots
+
+        return run_snapshots(resolved)
     output = _prepare_output_data(resolved)
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(filter(None, (

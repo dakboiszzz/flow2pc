@@ -26,4 +26,4 @@ esac
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
 exec "${FLOW2PC_PYTHON:-python}" "$repo_root/main.py" \
-  --config "$repo_root/configs/$stage/alicfm_$dataset.yaml" "${mode_args[@]}" "$@"
+  --config "$repo_root/configs/$stage/ali_cfm/alicfm_$dataset.yaml" "${mode_args[@]}" "$@"

@@ -70,7 +70,7 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
             initial = (
                 source[torch.randint(len(source), (samples,))].flatten(1).to(device)
             )
-            times = data.times.to(device)
+            times = data.times.to(initial)
             teacher_path = integrate(
                 lambda x, t: teacher.velocity(x, t), initial, times, steps
             )
@@ -85,7 +85,11 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
             }
             direct_samples = []
             for index, t in enumerate(times):
-                values = data.validation_marginals[index]
+                values = (
+                    data.test_marginals[index]
+                    if hasattr(data, "test_marginals") and index in data.heldout_indices
+                    else data.validation_marginals[index]
+                )
                 reference = (
                     values[torch.randint(len(values), (samples,))].flatten(1).to(device)
                 )
