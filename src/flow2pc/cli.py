@@ -55,6 +55,16 @@ def main(argv=None):
         return 0
     try:
         config = load_config(args.config, args.set)
+        if args.evaluate:
+            if isinstance(config, tuple):
+                raise ValueError(
+                    "--evaluate uses ALI-CFM/OTP-FM checkpoint configs; "
+                    "for MFM use a stage: evaluate config instead"
+                )
+            from flow2pc.evaluation.entrypoint import run as evaluate_checkpoint
+
+            print(json.dumps(evaluate_checkpoint(config, args.evaluate), indent=2))
+            return 0
         if isinstance(config, tuple):
             stage, resolved = config
             if args.validate_only:
