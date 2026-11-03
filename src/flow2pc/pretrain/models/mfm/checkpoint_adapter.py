@@ -39,6 +39,10 @@ def build(config):
     )
 
 def load(config, device):
+    if config.get("dataset") == "mfm_snapshots":
+        from flow2pc.pretrain.models.mfm.snapshots import load_teacher
+
+        return load_teacher(config, device)
     repo = config.get("repo_path")
     flow_path = Path(config["checkpoint_path"])
     geo_path = Path(config["geopath_checkpoint"])

@@ -39,6 +39,11 @@ metric = [
   "diffusers>=0.27",
   "safetensors>=0.4",
   "torchdyn>=1.0.6",
+  # Imported by upstream MFM's shared vector/image trainer, even for vector data.
+  "lpips>=0.1.4",
+  "phate>=1.0",
+  "scprep>=1.2.3",
+  "fld @ git+https://github.com/marcojira/fld.git@ffbbf2041115814fd1074f0117bcb96c5af840b7",
 ]
 
 [tool.setuptools]

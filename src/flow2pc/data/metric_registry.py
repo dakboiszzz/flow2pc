@@ -67,4 +67,6 @@ def _load_dataset(config, context, spec):
 
 
 for _name in ("afhq", "arch", "cite", "eb", "lidar", "multi", "sphere"):
-    register_dataset(_name, f"flow2pc.data.{'synthetic' if _name in ('arch', 'sphere') else 'real'}.{_name}:load", pipeline="metric")
+    register_dataset(_name, "flow2pc.data.metric_common:load_registered", pipeline="metric")
+
+register_dataset("mfm_snapshots", "flow2pc.data.mfm_snapshots:load", pipeline="metric")

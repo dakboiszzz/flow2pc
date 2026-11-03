@@ -95,6 +95,25 @@ def initialize_source(student, source, rng):
     student.log_scale_coefficients.copy_(log_scale[:, None, None] * direction)
 
 
+@torch.no_grad()
+def initialize_snapshot_source(student, source, rng):
+    """Empirical initialization for new snapshot recipes, never a density loss."""
+    from flow2pc.pc.gaussian_pc import TimeDependentGaussianPC
+
+    if not isinstance(student, TimeDependentGaussianPC):
+        return initialize_source(student, source, rng)
+    if student.polynomial_zero_center:
+        raise ValueError("Empirical sources require a free Gaussian time-zero boundary")
+    if source.ndim != 2 or source.shape[1] != student.dim or len(source) < 2 or not torch.isfinite(source).all():
+        raise ValueError("Expected finite source training observations")
+    indices = torch.randint(len(source), (student.num_components,), generator=rng)
+    student.mean_coefficients.zero_()
+    student.log_scale_coefficients.zero_()
+    student.mean_coefficients[..., 0].copy_(source[indices].to(student.mean_coefficients))
+    log_scale = (source.std(0).clamp_min(0.01) * 0.5).log()
+    student.log_scale_coefficients[..., 0].copy_(log_scale.to(student.log_scale_coefficients))
+
+
 def build_optimizer(student, lr, steps):
     optimizer = torch.optim.AdamW(student.parameters(), lr=lr, weight_decay=0.01)
     return optimizer, torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)

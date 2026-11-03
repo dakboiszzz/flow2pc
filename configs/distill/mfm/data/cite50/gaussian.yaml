@@ -1,0 +1,33 @@
+# Frozen paired MFM teacher; velocity MSE only; empirical source initialization.
+stage: distill
+seed: 42
+teacher:
+  name: mfm
+  checkpoint: outputs/mfm/cite50/default/pretrain/checkpoints/flow.pt
+  params:
+    repo_path: ../pretrain/metric-flow-matching
+    geopath_checkpoint: outputs/mfm/cite50/default/pretrain/checkpoints/geopath.pt
+data:
+  name: mfm_snapshots
+  root: data/mfm/prepared/cite50/seed42
+student:
+  name: gaussian
+  params:
+    num_components: 64
+    time_order: 4
+distillation:
+  steps: 20000
+  batch_size: 128
+  lr: 0.001
+  device: auto
+  gradient_clip: 1.0
+  log_every: 100
+  validate_every: 1000
+  checkpoint_every: 5000
+  resume_checkpoint: null
+output:
+  dir: outputs/mfm/cite50/default/distill/gaussian
+evaluation:
+  enabled: false
+wandb:
+  mode: disabled

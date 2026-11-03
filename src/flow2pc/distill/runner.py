@@ -438,6 +438,12 @@ def _run_mfm(config):
         else student_config(config.student, data, seed)
     )
     student = build_student_from_config(model_config).to(device)
+    if not checkpoint and data.source_info.get("format") == "mfm_snapshots_v1":
+        from flow2pc.distill.student import initialize_snapshot_source
+
+        initialize_snapshot_source(
+            student, data.train_marginals[0], torch.Generator().manual_seed(seed + 20000)
+        )
     optimizer = torch.optim.AdamW(
         student.parameters(), lr=float(training.get("lr", 0.001))
     )
