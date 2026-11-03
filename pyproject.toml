@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "PyYAML>=6.0",
   "matplotlib>=3.8",
+  "Pillow>=10",
   "networkx>=3.2",
   "scipy>=1.15",
   "torch>=2.6",
@@ -49,6 +50,7 @@ include = ["flow2pc*", "repc*"]
 
 [tool.setuptools.package-data]
 "flow2pc.pretrain.models.alicfm" = ["NOTICE.md", "SOURCE_PROVENANCE.json"]
+"flow2pc.pretrain.models.otpfm" = ["LICENSE", "NOTICE.md", "SOURCE_PROVENANCE.json"]
 
 [tool.ruff]
 line-length = 88
@@ -60,3 +62,4 @@ select = ["E4", "E7", "E9", "F", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/flow2pc/pretrain/models/alicfm/_source/*.py" = ["ALL"]
+"src/flow2pc/pretrain/models/otpfm/_source/*.py" = ["ALL"]

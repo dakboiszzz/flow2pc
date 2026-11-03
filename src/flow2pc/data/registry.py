@@ -1,6 +1,11 @@
 from flow2pc.utils.registry import Registry
 
 datasets = Registry("dataset")
+for name in ("gom", "beijing"):
+    datasets.register(
+        name, "flow2pc.data.real.transport:TransportMarginals",
+        "Prepared unpaired transport populations with explicit multiple temporal holdouts.",
+    )
 for name in ("cite", "multi"):
     datasets.register(
         name,

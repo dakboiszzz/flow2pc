@@ -65,6 +65,7 @@ def preprocessing_from_checkpoint(saved, meta, name, dim):
     if original.get("whiten"):
         shift = torch.tensor(original["whitening"]["mean"], dtype=torch.float64)
         scale = torch.tensor(original["whitening"]["scale"], dtype=torch.float64)
+    metric_shift, metric_scale = shift.clone(), scale.clone()
     if low_high is not None:
         lo, hi = [torch.as_tensor(x, dtype=torch.float64) for x in low_high]
         shift, scale = shift + scale * lo, scale * (hi - lo)
@@ -88,6 +89,8 @@ def preprocessing_from_checkpoint(saved, meta, name, dim):
         "whiten": bool(original.get("whiten", False)),
         "shift": shift.float().tolist(),
         "scale": scale.float().tolist(),
+        "metric_shift": metric_shift.float().tolist(),
+        "metric_scale": metric_scale.float().tolist(),
         "feature_key": features[name],
         "pca_recomputed": False,
     }

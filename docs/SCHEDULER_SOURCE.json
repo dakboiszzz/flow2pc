@@ -1,0 +1,19 @@
+{
+  "scope": "Shared queue helpers reused from the previously successful multi-dataset scheduler; old MNIST and model-training code are not restored.",
+  "original_file": "scripts/run_single_cell_all_sweeps.py",
+  "original_revision": "f2c6942",
+  "archived_source_sha256": "79264695573ad4ff477568d3d27086e0f881bb28ee72d85e735de05e200514e1",
+  "restored_functions": [
+    "choose_device",
+    "next_task",
+    "stop_workers"
+  ],
+  "migrated_file": "src/flow2pc/utils/gpu_queue.py",
+  "source_parity": "Function syntax trees are retained; module imports/documentation are adapted.",
+  "controller_changes": [
+    "Use nvidia-smi for inventory and free memory without importing Torch.",
+    "Bind workers to physical GPU UUIDs with cuda:0 inside each child.",
+    "Replace old training/evaluation commands with the migrated CLI and teacher/student dependencies.",
+    "Preserve the fair worker pool, worker limits, warm-up reservation and process-group cleanup."
+  ]
+}

@@ -29,3 +29,18 @@ logging:
   name: multi50-hclt-h128-f32-lr0.001-b64-seed0
 output:
   dir: /data/lthung/flow2pc/framework/distill/alicfm/multi50/hclt-h128-f32-lr0.001-b64-seed0
+
+# Post-training ODE evaluation and images; never contributes to the student loss.
+evaluation:
+  enabled: true
+  num_samples: 2048
+  metric_samples: 2048
+  batch_size: 64
+  seed: 2026
+  solver: dopri5
+  tolerance: 1.0e-05
+  ode_steps: 100
+  max_nfe: 50000
+  metric_space: historical
+  source_split: all
+  reference_split: all

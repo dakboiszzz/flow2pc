@@ -13,6 +13,7 @@ src/flow2pc/
   pc/base.py                    shared circuit interface
   pc/gaussian_pc.py             helpers imported by the HCLT implementation
   pretrain/models/alicfm/       ALI-CFM networks, training and frozen adapters
+  pretrain/models/otpfm/        original OTP-FM, dataset profiles and frozen adapter
   data/                        real-data loaders and time metadata
   utils/                       configuration, checkpoints and provenance
   distill/                     unified distillation integration boundary
@@ -88,6 +89,92 @@ transcriptomics, knot and cell tracking. The ST teacher method is recovered from
 the matching historical ALI-CFM implementation, rather than changing its
 regularizer. See [dataset support, commands and limitations](docs/ALICFM_DATASETS.md),
 including how to use existing checkpoints with their original preprocessing.
+
+To check the complete teacher-to-student workflow, with reference and comparison
+images logged to W&B project `flow2pc`:
+
+```bash
+bash scripts/check_alicfm_pipeline.sh cite50
+```
+
+This uses the full configured training budgets. Outputs go to
+`/data/lthung/flow2pc/framework/migration-check/cite50/{teacher,student}/`.
+Each run's `eval/media.json` lists its figures. Set `FLOW2PC_DATA_ROOT` and
+`FLOW2PC_CHECK_ROOT` for different directories; the check script forwards them
+as explicit config overrides. Both stages automatically evaluate after training.
+The check script reuses an existing teacher and resumes its student.
+
+Standalone evaluation uses existing migrated checkpoints and performs no training:
+
+```bash
+bash scripts/run_alicfm.sh evaluate-teacher cite50
+bash scripts/run_alicfm.sh evaluate-student cite50
+```
+
+These two commands use the original example-config output paths; pass
+`--set output.dir=/actual/run/directory` (and, for a student,
+`--set teacher.checkpoint=/actual/teacher/checkpoints/last.pt`) when evaluating
+a different run. See [the recovered evaluation workflow](EVALUATION_WORKFLOW.md)
+for image names and evaluation conventions.
+
+To check all ten datasets concurrently, the local recipe is
+`local_runs/check_all_alicfm.sh`. That folder is ignored by Git; the reusable
+launcher is `scripts/run_alicfm_checks.py`. It reuses the previous sweep's fair
+GPU queue, warm-up memory reservations and bounded workers. See
+[parallel launch instructions](docs/PARALLEL_CHECKS.md) for preview, GPU selection
+and output paths.
+
+For the new Gulf of Mexico and Beijing teacher search, use the
+[1,024-run ALI-CFM transport sweep](docs/ALICFM_TRANSPORT_SWEEP.md):
+
+```bash
+bash scripts/run_alicfm_transport_sweep_8gpu.sh --dry-run
+bash scripts/run_alicfm_transport_sweep_8gpu.sh
+```
+
+It prepares 512 configs per dataset, uses eight GPUs with bounded parallel workers,
+logs to W&B `flow2pc`, and saves per-run figures plus dataset-specific rankings
+under `/data/lthung/flow2pc/alicfm-transport/sweep-512`. These are new dataset
+adaptations using the existing ALI-CFM stages; numerical behavior is unverified
+until training is run.
+
+OTP-FM uses a shared model/trainer/adapter with dataset profiles; GOM and Beijing
+are the first supported datasets. To prepare and run native-versus-migrated
+teacher checks across eight GPUs:
+
+```bash
+bash scripts/run_otpfm_checks_8gpu.sh --backend native --dry-run
+bash scripts/run_otpfm_checks_8gpu.sh --backend native
+bash scripts/run_otpfm_checks_8gpu.sh --backend migrated
+python scripts/compare_otpfm_runs.py
+```
+
+Each batch has eight teachers: two datasets, W2/W2Inf and seeds 42/43. Results and
+best/final figures go under `/data/lthung/flow2pc/otp-fm/migration-check`, with
+W&B project `flow2pc`. Numerical parity awaits these runs. OTP-FM's conditional
+PC sampler is a separate, pending integration. See the
+[OTP-FM migration notes](docs/OTP_FM_MIGRATION.md) for configuration, outputs,
+native evaluation semantics and dataset extension points.
+
+For OTP-FM on the ALI-CFM experiment datasets, prepare the
+[100-config-per-profile sweep](docs/OTP_FM_ALI_DATA_SWEEP.md):
+
+```bash
+bash scripts/run_otpfm_ali_data_sweep_8gpu.sh --dry-run
+bash scripts/run_otpfm_ali_data_sweep_8gpu.sh
+```
+
+Standalone OTP-FM teacher configs live in `configs/pretrain/`. For example:
+
+```bash
+python main.py --config configs/pretrain/otpfm_cite50.yaml
+```
+
+The sweep prepares 1,000 teachers across ten dataset/dimension profiles and defaults
+to two workers per GPU across eight GPUs. It inherits each experiment's data and
+W1 EMD settings, with the six README-specified frames for tracking, final figures,
+W&B `flow2pc`, and disk-safe resumable orchestration. These are new dataset
+adaptations; training/evaluation of this sweep has not been run by the assistant.
 
 ## Development
 

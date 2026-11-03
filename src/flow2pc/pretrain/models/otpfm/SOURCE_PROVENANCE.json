@@ -1,0 +1,264 @@
+{
+  "upstream_repository": "https://github.com/Bexorg-Inc/OTP-FM",
+  "local_source": "../otp-fm",
+  "upstream_revision": "ca4fe796930414ae749eba2b299e7c7ec8cebf3d",
+  "license": "Apache-2.0",
+  "scope": "Original core and GOM/Beijing profiles plus original general single-cell tuple dataset; new shared-data sweep adapters live outside _source.",
+  "files": [
+    {
+      "upstream_file": "src/otpfm/lambdas.py",
+      "upstream_sha256": "3b15ade0c45fc117c70ec09045cadee8cba0facc4cc51573b867dd3ff645e49f",
+      "migrated_file": "lambdas.py",
+      "migrated_sha256": "3b15ade0c45fc117c70ec09045cadee8cba0facc4cc51573b867dd3ff645e49f",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "src/otpfm/networks.py",
+      "upstream_sha256": "0860dd4165ca7a8751eb65903aac3bd280367b3c1bd7c7cbba1123a3567a1fce",
+      "migrated_file": "networks.py",
+      "migrated_sha256": "0860dd4165ca7a8751eb65903aac3bd280367b3c1bd7c7cbba1123a3567a1fce",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "src/otpfm/otpfm.py",
+      "upstream_sha256": "fd936880ea81e525c01d33653ebc2e20bbeae63af468f89793d99efaf5e6c450",
+      "migrated_file": "otpfm.py",
+      "migrated_sha256": "fd936880ea81e525c01d33653ebc2e20bbeae63af468f89793d99efaf5e6c450",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "src/otpfm/potentials.py",
+      "upstream_sha256": "ff3eddfbc14317b24897ac7d87132817e23b9e6aa33fe623a6c1d6561ecbd63c",
+      "migrated_file": "potentials.py",
+      "migrated_sha256": "ff3eddfbc14317b24897ac7d87132817e23b9e6aa33fe623a6c1d6561ecbd63c",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "src/otpfm/solvers.py",
+      "upstream_sha256": "4d2ea7dbf463c755e95ad17078e8c596c47304e9a7084fe7541f74be9236d823",
+      "migrated_file": "solvers.py",
+      "migrated_sha256": "4d2ea7dbf463c755e95ad17078e8c596c47304e9a7084fe7541f74be9236d823",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "src/otpfm/training.py",
+      "upstream_sha256": "cdde987f09d1e5da080347a2e579e062ff1eff7d34e17e4cd10e2078dfe5be6a",
+      "migrated_file": "training.py",
+      "migrated_sha256": "cdde987f09d1e5da080347a2e579e062ff1eff7d34e17e4cd10e2078dfe5be6a",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/common/trainer.py",
+      "upstream_sha256": "8013fda91d9d1c7855983bfedbea12a0670761bdf31c0b310929832d382a2d61",
+      "migrated_file": "common_trainer.py",
+      "migrated_sha256": "ca449d3c3445f933157d47a9248d6791aa8c5a4cbcfcb68dac48f2dc2a280a3b",
+      "changes": [
+        "Import wiring only: from otpfm import Curriculum -> from .training import Curriculum",
+        "Import wiring only: from experiments import plotting -> from . import common_plotting as plotting"
+      ],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/common/evaluation.py",
+      "upstream_sha256": "f46ccd73eacd884851d11be845e6d7a5d6a400a65785535f398638f319f76f65",
+      "migrated_file": "common_evaluation.py",
+      "migrated_sha256": "f46ccd73eacd884851d11be845e6d7a5d6a400a65785535f398638f319f76f65",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/common/plotting.py",
+      "upstream_sha256": "9d255e7a7f4988fef47e2d9f7d13cb3274dcf202bbe2dd1b1d489a84a00eac92",
+      "migrated_file": "common_plotting.py",
+      "migrated_sha256": "9d255e7a7f4988fef47e2d9f7d13cb3274dcf202bbe2dd1b1d489a84a00eac92",
+      "changes": [],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/gulfofmexico/trainer.py",
+      "upstream_sha256": "b3d05f6f959c5c2247effc2ab705e1eb4d15049b61a7d929ef583ae127f8d588",
+      "migrated_file": "gom_trainer.py",
+      "migrated_sha256": "9b8585ab5db27d8c92125103bf7fd1d35cb94c7d0ca2593468763caef5c2acbc",
+      "changes": [
+        "Import wiring only: from experiments import Trainer -> from .common_trainer import Trainer",
+        "Import wiring only: from experiments.evaluation import compute_w2_distance -> from .common_evaluation import compute_w2_distance",
+        "Import wiring only: from experiments.gulfofmexico import plotting -> from . import gom_plotting as plotting",
+        "Import wiring only: from experiments.gulfofmexico.data import -> from .gom_data import",
+        "Import wiring only: from experiments.plotting import -> from .common_plotting import"
+      ],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/gulfofmexico/plotting.py",
+      "upstream_sha256": "da53ec9558a75cedaa6b8174c019cec17745f4317fef97c3e05ab33879d732be",
+      "migrated_file": "gom_plotting.py",
+      "migrated_sha256": "5b71d13a6124c56d1da74db9436c4c309c785857a4da841771e00ae7f8f016f8",
+      "changes": [
+        "Import wiring only: from experiments import plotting -> from . import common_plotting as plotting",
+        "Import wiring only: from experiments.plotting import -> from .common_plotting import"
+      ],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/beijingair/trainer.py",
+      "upstream_sha256": "97bf8f8d640d0f223985dc19f9a9675e8f538dff122a279337f3adcbc40c3280",
+      "migrated_file": "beijing_trainer.py",
+      "migrated_sha256": "241aca525846b537db5214cb2a09cb92cf1f7b1096c35d834901ae13c74d2fe5",
+      "changes": [
+        "Import wiring only: from experiments import Trainer -> from .common_trainer import Trainer",
+        "Import wiring only: from experiments.evaluation import compute_w2_distance -> from .common_evaluation import compute_w2_distance",
+        "Import wiring only: from experiments.beijingair import plotting -> from . import beijing_plotting as plotting",
+        "Import wiring only: from experiments.beijingair.data import -> from .beijing_data import",
+        "Import wiring only: from experiments.plotting import -> from .common_plotting import"
+      ],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/beijingair/plotting.py",
+      "upstream_sha256": "a6b73ffe8993f5586cce767c63432680ab5276c6f4a70e1d3c3598c3969a7dc0",
+      "migrated_file": "beijing_plotting.py",
+      "migrated_sha256": "c7a83945f6f99d764cc0b2eb7f2405e204bf3b475040ccabd07e0a63f43b2a14",
+      "changes": [
+        "Import wiring only: from experiments import plotting -> from . import common_plotting as plotting",
+        "Import wiring only: from experiments.plotting import -> from .common_plotting import",
+        "Import wiring only: from experiments.beijingair.data import -> from .beijing_data import"
+      ],
+      "definitions": null
+    },
+    {
+      "upstream_file": "experiments/gulfofmexico/data.py",
+      "upstream_sha256": "39bc74f1c65a921983cd11b8f9cff8876d7d7ce6923abd3136cd7fe5a373546f",
+      "migrated_file": "gom_data.py",
+      "migrated_sha256": "fc828e96e7e502461af993ffad88ad8e9c9230757ab48b809d26f48ecf18cb9b",
+      "changes": [
+        "Selected original coupling, tuple dataset and DataLoader definitions unchanged; no downloads/raw loader."
+      ],
+      "definitions": [
+        "compute_gom_ot_alignments",
+        "GoMMultiMarginalDataset",
+        "create_gom_dataloaders"
+      ]
+    },
+    {
+      "upstream_file": "experiments/beijingair/data.py",
+      "upstream_sha256": "8ae2c3b263e48a99999f610f767ae250cbcde90d86398d97b68f6e433362b7b5",
+      "migrated_file": "beijing_data.py",
+      "migrated_sha256": "c25b115812f6ff2e1b34e554c5dada171e1c0a29cd727942f589d489544615f5",
+      "changes": [
+        "Selected original coupling, tuple dataset and DataLoader definitions unchanged; no downloads/raw loader."
+      ],
+      "definitions": [
+        "compute_beijing_ot_alignments",
+        "BeijingMultiMarginalDataset",
+        "create_beijing_dataloaders"
+      ]
+    },
+    {
+      "upstream_file": "experiments/train.py",
+      "upstream_sha256": "0a8cd9c471fbb0ddeac6179666d91fc14266ad3661a46a53b3f25c0425d6b495",
+      "migrated_file": "factory.py",
+      "migrated_sha256": "6c3bdcefcc0426bc9bfb0e04d756dd615bcafe745d300ebad9ae7050570cadcf",
+      "changes": [
+        "Selected factory definitions unchanged; imports made relative."
+      ],
+      "definitions": [
+        "create_potential",
+        "create_potentials",
+        "create_model",
+        "get_dataset_trainer_args"
+      ]
+    },
+    {
+      "upstream_file": "experiments/reproduce.py",
+      "upstream_sha256": "acdd84baa4dee431653deb92b8ad86415d38d403551e29e190135d7fdc1dda0e",
+      "migrated_file": "reproduction.py",
+      "migrated_sha256": "5a192247351d571e8592789227776ceb86f1e0ad4be32b059fddf66956e0e95b",
+      "changes": [
+        "Selected definitions unchanged; import wiring only."
+      ],
+      "definitions": [
+        "read_json",
+        "write_json",
+        "RunLogger",
+        "trainer_kwargs",
+        "log_trajectory_previews"
+      ]
+    },
+    {
+      "upstream_file": "experiments/singlecell/data.py",
+      "upstream_sha256": "a4eb6144ffd8c8b7587b1e3a9a6aa5951307ca37a7b80f01985d460d7284d18f",
+      "migrated_file": "singlecell_tuples.py",
+      "migrated_sha256": "3ccdf0efa42450f1795688b1641d26a83b20b77190c1b38b0aef5abdd8cb32a0",
+      "changes": [
+        "Selected EBMultiMarginalDataset copied unchanged; raw loading/downloading is excluded."
+      ],
+      "definitions": [
+        "EBMultiMarginalDataset"
+      ]
+    }
+  ],
+  "configs": [
+    {
+      "dataset": "gom",
+      "recipe": "W2",
+      "source_file": "/data/lthung/otp-fm/gom/configs/W2.json",
+      "source_sha256": "62f255bf210d4510c43a58d5a08dd272ba345c7610fb7ae770e57345c98aabaf",
+      "migrated_file": "configs/pretrain/otpfm_gom_w2.yaml"
+    },
+    {
+      "dataset": "gom",
+      "recipe": "W2Inf",
+      "source_file": "/data/lthung/otp-fm/gom/configs/W2Inf.json",
+      "source_sha256": "c6844217bcecf82e6679e19a20f6061a56dbd87c5bec56c91b6b11664bee6426",
+      "migrated_file": "configs/pretrain/otpfm_gom_w2inf.yaml"
+    },
+    {
+      "dataset": "gom",
+      "recipe": "MMD",
+      "source_file": "/data/lthung/otp-fm/gom/configs/MMD.json",
+      "source_sha256": "621e48744591afd65cc23baf58f08d632666dfed7b4324b4241865be29e02676",
+      "migrated_file": "configs/pretrain/otpfm_gom_mmd.yaml"
+    },
+    {
+      "dataset": "gom",
+      "recipe": "KL",
+      "source_file": "/data/lthung/otp-fm/gom/configs/KL.json",
+      "source_sha256": "b3111266cbb71bc7ba0e63909dde0ab9493ee25abb4403077fed3f0945c34ae7",
+      "migrated_file": "configs/pretrain/otpfm_gom_kl.yaml"
+    },
+    {
+      "dataset": "beijing",
+      "recipe": "W2",
+      "source_file": "/data/lthung/otp-fm/beijing/configs/W2.json",
+      "source_sha256": "8e05c08c6f1f6a4546975f09db1b0c0878b188fc92c5d3148a6d871ad1342c93",
+      "migrated_file": "configs/pretrain/otpfm_beijing_w2.yaml"
+    },
+    {
+      "dataset": "beijing",
+      "recipe": "W2Inf",
+      "source_file": "/data/lthung/otp-fm/beijing/configs/W2Inf.json",
+      "source_sha256": "2c8cb06e8170c40472af2d2289b419060b52627e0ae6efd68958a20df8e517f7",
+      "migrated_file": "configs/pretrain/otpfm_beijing_w2inf.yaml"
+    },
+    {
+      "dataset": "beijing",
+      "recipe": "MMD",
+      "source_file": "/data/lthung/otp-fm/beijing/configs/MMD.json",
+      "source_sha256": "dc4799d4dcc0a3cbf15a0e0974f071ae1b5d0a770e6fada0fbd3225bdf43256e",
+      "migrated_file": "configs/pretrain/otpfm_beijing_mmd.yaml"
+    },
+    {
+      "dataset": "beijing",
+      "recipe": "KL",
+      "source_file": "/data/lthung/otp-fm/beijing/configs/KL.json",
+      "source_sha256": "67ebde6e56e9ba7564f7211bd1ac64f95b8fd5bc5be64caf4f20ebaa0da1521f",
+      "migrated_file": "configs/pretrain/otpfm_beijing_kl.yaml"
+    }
+  ]
+}

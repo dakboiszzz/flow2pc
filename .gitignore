@@ -24,3 +24,6 @@ dist/
 *.npz
 wandb/
 lightning_logs/
+
+# Machine-specific launch recipes stay local; reusable launchers live in scripts/.
+/local_runs/

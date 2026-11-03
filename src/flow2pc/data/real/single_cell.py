@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import Dataset
 
 from flow2pc.data.base import TemporalMetadata
+from flow2pc.data.preprocessing import fit_all_marginals, transform
 from flow2pc.utils.checkpoint import identity, sha256
 
 FILES = {"cite": "op_cite_inputs_0.h5ad", "multi": "op_train_multi_targets_0.h5ad"}
@@ -36,7 +37,7 @@ class H5Marginal(Dataset):
         if not torch.isfinite(values).all():
             raise ValueError("Non-finite PCA coordinates")
         p = self.preprocessing
-        return (values - torch.tensor(p["shift"])) / torch.tensor(p["scale"])
+        return transform(values, p)
 
     def __getitem__(self, index):
         with h5py.File(self.path, "r") as handle:
@@ -60,6 +61,7 @@ class SingleCell:
             "test_fraction",
             "normalise",
             "whiten",
+            "preprocessing_protocol",
         }
         if set(params) - allowed:
             raise ValueError(f"Unknown single-cell params: {set(params) - allowed}")
@@ -85,6 +87,9 @@ class SingleCell:
                 "Validation/test fractions must be positive and sum below 1"
             )
         normalise, whiten = params.get("normalise", True), params.get("whiten", False)
+        protocol = params.get("preprocessing_protocol", "train_affine")
+        if protocol not in ("train_affine", "native_all"):
+            raise ValueError("Unknown preprocessing_protocol")
         if type(normalise) is not bool or type(whiten) is not bool:
             raise ValueError("normalise and whiten must be booleans")
         self.path = Path(root) / "single_cell" / FILES[name]
@@ -117,12 +122,21 @@ class SingleCell:
                 }
             self.rows.append(splits)
         self.observed = [i for i in range(4) if i != self.heldout]
+        if preprocessing is None and protocol == "native_all":
+            with h5py.File(self.path, "r") as handle:
+                # Preserve the native full PCA array's row order and column slice.
+                values = handle["obsm/X_pca"][:][:, : self.dim]
+            preprocessing = fit_all_marginals(
+                values, normalise=normalise, whiten=whiten,
+                feature_key="obsm/X_pca", time_indices=range(4),
+            )
         # Fit only observed training cells. No held-out day or val/test values
         # contribute to these statistics. Access is explicit, not import-time.
         train_rows = np.sort(
             np.concatenate([self.rows[i]["train"] for i in self.observed])
         )
         shift, scale = np.zeros(self.dim), np.ones(self.dim)
+        metric_shift, metric_scale = shift.copy(), scale.copy()
         if preprocessing is None and (normalise or whiten):
             with h5py.File(self.path, "r") as handle:
                 values = handle["obsm/X_pca"][train_rows, : self.dim].astype(np.float64)
@@ -131,6 +145,7 @@ class SingleCell:
             if whiten:
                 shift, scale = values.mean(0), values.std(0)
                 scale = np.where(scale > 0, scale, 1)
+                metric_shift, metric_scale = shift.copy(), scale.copy()
             if normalise:
                 standardized = (values - shift) / scale
                 lo, hi = standardized.min(0), standardized.max(0)
@@ -144,6 +159,8 @@ class SingleCell:
             "whiten": whiten,
             "shift": shift.astype(np.float32).tolist(),
             "scale": scale.astype(np.float32).tolist(),
+            "metric_shift": metric_shift.astype(np.float32).tolist(),
+            "metric_scale": metric_scale.astype(np.float32).tolist(),
             "feature_key": "obsm/X_pca",
             "pca_recomputed": False,
         }
@@ -177,10 +194,14 @@ class SingleCell:
     def get_marginal(self, time_index, split):
         if type(time_index) is not int or time_index not in range(4):
             raise ValueError("time_index must be 0, 1, 2 or 3")
-        if split not in ("train", "val", "test"):
-            raise ValueError("split must be train, val or test")
+        if split not in ("train", "val", "test", "all"):
+            raise ValueError("split must be train, val, test or all")
+        rows = (
+            np.sort(np.concatenate(list(self.rows[time_index].values())))
+            if split == "all" else self.rows[time_index][split]
+        )
         return H5Marginal(
-            self.path, self.rows[time_index][split], self.dim, self.preprocessing
+            self.path, rows, self.dim, self.preprocessing
         )
 
     def contract(self):

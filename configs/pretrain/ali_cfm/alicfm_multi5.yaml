@@ -1,4 +1,5 @@
-# Upstream configs/single_cell/5D/multi-5D.yaml; unused regularizer options are explicit defaults.
+# Native teacher training protocol: all observed rows; all-time sequential preprocessing.
+# Student row splits remain separate; post-training figures use the explicit evaluation protocol.
 stage: pretrain
 seed: 42
 model:
@@ -32,6 +33,7 @@ data:
     test_fraction: 0.05
     normalise: true
     whiten: true
+    preprocessing_protocol: native_all
 training:
   device: cuda:0
   batch_size: 128
@@ -42,9 +44,23 @@ training:
   interpolant_disc_lr: 5.0e-05
   num_cfm_train_steps: 2001
   cfm_lr: 0.001
+  protocol: native
 logging:
   mode: online
   project: flow2pc
-  name: alicfm-multi5-fold1-seed42
+  name: alicfm-multi5-native-fold1-seed42
 output:
   dir: /data/lthung/flow2pc/framework/pretrain/alicfm/multi5/fold1-seed42
+evaluation:
+  enabled: true
+  num_samples: 2048
+  metric_samples: 2048
+  batch_size: 64
+  seed: 2026
+  solver: dopri5
+  tolerance: 1.0e-05
+  ode_steps: 100
+  max_nfe: 50000
+  metric_space: historical
+  source_split: all
+  reference_split: all
