@@ -191,6 +191,25 @@ def command_for(run, config_path):
     return command
 
 
+def check_worker_entrypoint():
+    """Check the worker's CLI imports without constructing data or models."""
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "main.py"), "--list-models"],
+        cwd=ROOT,
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src"),
+             "PYTHONDONTWRITEBYTECODE": "1"},
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode:
+        raise ValueError(
+            "Worker CLI startup failed; no jobs were launched:\n"
+            + (result.stderr or result.stdout)[-4000:]
+        )
+    listing = json.loads(result.stdout)
+    if listing.get("alicfm", {}).get("status") != "implemented":
+        raise ValueError("Worker CLI does not register ALI-CFM; no jobs were launched")
+
+
 def archive_incomplete(run):
     if not run.output.exists():
         return
@@ -432,6 +451,11 @@ def main(argv=None):
     runs = build_runs(args)
     for task in runs:
         inspect_run(task, args.retry_incomplete)
+    if not args.summarize_only:
+        try:
+            check_worker_entrypoint()
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            parser.error(str(error))
     inventory = {} if args.summarize_only else gpu_inventory()
     devices = [] if args.summarize_only else selected_devices(args.gpus, inventory)
     args.max_parallel = min(args.max_parallel, len(devices) * args.workers_per_gpu) if devices else 0
