@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from flow2pc.distill import mfm
+from flow2pc.distill import runner, sampling
 from flow2pc.distill.student import build_student_from_config
 from flow2pc.pc.gaussian_pc import TimeDependentGaussianPC
 from flow2pc.pc.hclt_pc import TimeDependentHCLTPC
@@ -28,7 +28,7 @@ def test_factory_restores_original_model_layout_and_outputs(kind):
         original = TimeDependentGaussianPC(4, 2, 3, polynomial_zero_center=False)
     restored = build_student_from_config(cfg)
     restored.load_state_dict(original.state_dict(), strict=True)
-    assert mfm.build_student is build_student_from_config
+    assert runner.build_student_from_config is build_student_from_config
     x, t = torch.randn(8, 2), torch.linspace(0, 1, 8)
     torch.testing.assert_close(restored.velocity(x, t), original.velocity(x, t), rtol=0, atol=0)
     torch.testing.assert_close(restored.log_prob(x, t), original.log_prob(x, t), rtol=0, atol=0)
@@ -52,9 +52,9 @@ def test_loss_never_reads_source_density_or_draws_extra_batch(monkeypatch):
     def draw(values, count, device):
         draws.append(count)
         return values[:count]
-    monkeypatch.setattr(mfm, "_draw", draw)
+    monkeypatch.setattr(sampling, "_draw", draw)
     expected = (student.velocity(samples, times) - 1).square().mean()
-    actual, components = mfm.distillation_loss(student, teacher, data, 5, "cpu")
+    actual, components = sampling.mfm_distillation_loss(student, teacher, data, 5, "cpu")
     torch.testing.assert_close(actual, expected)
     assert draws == [5, 5]
     assert set(components) == {"velocity_mse"}
@@ -89,18 +89,18 @@ def test_legacy_csv_is_preserved_and_new_schema_checked(tmp_path):
     old = tmp_path / "metrics.csv"
     content = "step,loss,velocity_mse,source_nll_per_dimension,gradient_norm,validation_loss\n1,2,2,3,4,5\n"
     old.write_text(content)
-    target = mfm.metrics_path(tmp_path)
+    target = runner.metrics_path(tmp_path)
     assert target.name == "metrics_velocity.csv"
     assert old.read_text() == content
-    target.write_text(",".join(mfm.METRIC_FIELDS) + "\n")
-    assert mfm.metrics_path(tmp_path) == target
+    target.write_text(",".join(runner.METRIC_FIELDS) + "\n")
+    assert runner.metrics_path(tmp_path) == target
     target.write_text("invalid,header\n")
     with pytest.raises(ValueError, match="header"):
-        mfm.metrics_path(tmp_path)
+        runner.metrics_path(tmp_path)
 
 
 def test_new_csv_uses_standard_filename(tmp_path):
-    assert mfm.metrics_path(tmp_path) == tmp_path / "metrics.csv"
+    assert runner.metrics_path(tmp_path) == tmp_path / "metrics.csv"
 
 
 def test_evaluation_does_not_query_density(monkeypatch):
@@ -142,13 +142,13 @@ def test_new_run_emits_only_velocity_metadata(tmp_path, monkeypatch):
         path_sampler=SimpleNamespace(couple=lambda x, y: (x, y),
                                      sample=lambda x, y, *args: (torch.full((len(x),), .5), x)),
     )
-    monkeypatch.setattr(mfm, "load_resources", lambda *args: (teacher, data))
-    monkeypatch.setattr(mfm, "_identity", lambda *args: {})
-    monkeypatch.setattr(mfm, "student_config", lambda *args: {
+    monkeypatch.setattr(runner, "load_resources", lambda *args: (teacher, data))
+    monkeypatch.setattr(runner, "_identity", lambda *args: {})
+    monkeypatch.setattr(runner, "student_config", lambda *args: {
         "name": "gaussian", "dim": 2, "num_components": 3, "time_order": 2,
     })
-    mfm.run(config)
+    runner.run_mfm(config)
     checkpoint = torch.load(tmp_path / "checkpoints/last.pt", weights_only=False)
     assert "source_nll_weight" not in checkpoint
     assert "source_nll_weight" not in checkpoint["training_config"]["training"]
-    assert (tmp_path / "metrics.csv").read_text().splitlines()[0] == ",".join(mfm.METRIC_FIELDS)
+    assert (tmp_path / "metrics.csv").read_text().splitlines()[0] == ",".join(runner.METRIC_FIELDS)

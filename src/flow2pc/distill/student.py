@@ -98,3 +98,56 @@ def initialize_source(student, source, rng):
 def build_optimizer(student, lr, steps):
     optimizer = torch.optim.AdamW(student.parameters(), lr=lr, weight_decay=0.01)
     return optimizer, torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=steps)
+
+
+def student_config(settings, data, seed):
+    structure = settings.get("pc_structure", "hclt")
+    config = {
+        "name": structure,
+        "dim": data.dim,
+        "sample_shape": list(data.sample_shape),
+        "time_order": int(settings.get("time_order", 4)),
+    }
+    if structure == "gaussian":
+        config.update(
+            num_components=int(settings.get("num_components", 64)),
+            polynomial_zero_center=False,
+        )
+    else:
+        if settings.get("topology", "learned") == "balanced":
+            parents = [-1] + [(i - 1) // 2 for i in range(1, data.dim)]
+        else:
+            from flow2pc.pc.metric_topology import parents_from_mutual_information
+
+            matrix = torch.cat(
+                [data.train_marginals[i].flatten(1) for i in data.observed_indices]
+            )
+            indices = torch.randperm(len(matrix))[
+                : int(settings.get("topology_samples", 2048))
+            ]
+            matrix = matrix[indices].double()
+            centered = matrix - matrix.mean(0)
+            norm = centered.square().sum(0).sqrt().clamp_min(1e-12)
+            standardized = centered / norm
+            correlations = (standardized.T @ standardized).clamp(-1 + 1e-8, 1 - 1e-8)
+            information = -0.5 * torch.log1p(-correlations.square())
+            information.fill_diagonal_(0)
+            parents = (
+                [-1]
+                if data.dim == 1
+                else parents_from_mutual_information(information.float())
+            )
+        config.update(
+            parents=parents,
+            num_latents=int(settings.get("num_latents", 64)),
+            sum_layer="dense",
+            time_conditioning="fourier",
+            fourier_zero_center=False,
+            time_embedding_dim=int(settings.get("time_embedding_dim", 64)),
+            time_feature_seed=seed,
+            topology=settings.get("topology", "learned"),
+            topology_estimator="balanced_fixed"
+            if settings.get("topology") == "balanced"
+            else "gaussian_mutual_information",
+        )
+    return config

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from torch import nn
 
 
 @dataclass
@@ -75,3 +76,46 @@ def velocity_mse(student, teacher, batch):
     if prediction.shape != target.shape or not torch.isfinite(target).all():
         raise ValueError("Invalid teacher/student velocity shapes or target")
     return (prediction - target).square().mean()
+
+
+def _draw(values, count, device):
+    return values[torch.randint(len(values), (count,))].to(device)
+
+
+def mfm_distillation_loss(
+    student,
+    teacher,
+    data,
+    batch_size,
+    device,
+    *,
+    validation=False,
+    interval_index=None,
+):
+    frames = data.validation_marginals if validation else data.train_marginals
+    observed = data.observed_indices
+    interval = (
+        int(torch.randint(len(observed) - 1, ()).item())
+        if interval_index is None
+        else interval_index
+    )
+    left, right = observed[interval : interval + 2]
+    x0, x1 = (
+        _draw(frames[left], batch_size, device),
+        _draw(frames[right], batch_size, device),
+    )
+    x0, x1 = teacher.path_sampler.couple(x0, x1)
+    times, samples = teacher.path_sampler.sample(
+        x0, x1, float(data.times[left]), float(data.times[right])
+    )
+    with torch.no_grad():
+        target = teacher.velocity(samples, times).flatten(1)
+    if not torch.isfinite(target).all() or not torch.isfinite(samples).all():
+        raise FloatingPointError("Nonfinite metric teacher velocity/geopath points")
+    mse = nn.functional.mse_loss(student.velocity(samples.flatten(1), times), target)
+    loss = mse
+    if not torch.isfinite(loss):
+        raise FloatingPointError("Nonfinite metric distillation loss")
+    return loss, {
+        "velocity_mse": mse.detach().item(),
+    }

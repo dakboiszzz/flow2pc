@@ -63,7 +63,7 @@ def main(argv=None):
                 if stage == "pretrain":
                     from flow2pc.pretrain.models.mfm.trainer import run
                 elif stage == "distill":
-                    from flow2pc.distill.mfm import run
+                    from flow2pc.distill.runner import run_mfm as run
                 else:
                     from flow2pc.evaluation.metric_flow import evaluate_checkpoint
 
