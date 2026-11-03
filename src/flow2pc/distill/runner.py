@@ -27,6 +27,7 @@ from flow2pc.pretrain.models.alicfm.trainer import LocalLogger
 from flow2pc.pretrain.models.mfm.checkpoint_adapter import load_teacher as load_mfm_teacher
 from flow2pc.pretrain.runner import load_teacher
 from flow2pc.utils.checkpoint import atomic_json, atomic_path, identity, sha256
+from flow2pc.utils.experiment import ExperimentConfig
 from flow2pc.utils.seed import seed_everything
 from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
 
@@ -66,7 +67,7 @@ def save(path, payload):
         torch.save(payload, temporary)
 
 
-def run(config):
+def _run_ali(config):
     teacher, dataset, sampler = prepare(config)
     from flow2pc.evaluation.figures import validate_resources
 
@@ -392,7 +393,7 @@ def load_resources(config, device):
     return teacher, data
 
 
-def run_mfm(config):
+def _run_mfm(config):
     validate_config(config)
     training = config.training
     seed = int(training.get("seed", 42))
@@ -604,3 +605,12 @@ def run_mfm(config):
         if tracker:
             tracker.finish()
     return output
+
+
+def run(config):
+    """Dispatch distillation using the existing method-specific config contract."""
+    if isinstance(config, ExperimentConfig):
+        return _run_mfm(config)
+    if isinstance(config, dict):
+        return _run_ali(config)
+    raise TypeError(f"Unsupported distillation config type: {type(config).__name__}")

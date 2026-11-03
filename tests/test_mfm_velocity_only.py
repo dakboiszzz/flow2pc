@@ -11,6 +11,18 @@ from flow2pc.distill.student import build_student_from_config
 from flow2pc.pc.gaussian_pc import TimeDependentGaussianPC
 from flow2pc.pc.hclt_pc import TimeDependentHCLTPC
 from flow2pc.utils.mfm_config import checkpoint_training_config
+from flow2pc.utils.experiment import ExperimentConfig
+
+
+def test_runner_dispatches_existing_config_contracts(monkeypatch):
+    ali_config = {"stage": "distill"}
+    mfm_config = ExperimentConfig(teacher={}, dataset={})
+    monkeypatch.setattr(runner, "_run_ali", lambda config: ("ali", config))
+    monkeypatch.setattr(runner, "_run_mfm", lambda config: ("mfm", config))
+    assert runner.run(ali_config) == ("ali", ali_config)
+    assert runner.run(mfm_config) == ("mfm", mfm_config)
+    with pytest.raises(TypeError, match="Unsupported distillation config type"):
+        runner.run(None)
 
 
 @pytest.mark.parametrize("kind", ["hclt", "gaussian"])
@@ -152,7 +164,7 @@ def test_new_run_emits_only_velocity_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "student_config", lambda *args: {
         "name": "gaussian", "dim": 2, "num_components": 3, "time_order": 2,
     })
-    runner.run_mfm(config)
+    runner.run(config)
     checkpoint = torch.load(tmp_path / "checkpoints/last.pt", weights_only=False)
     assert "source_nll_weight" not in checkpoint
     assert "source_nll_weight" not in checkpoint["training_config"]["training"]
