@@ -41,6 +41,7 @@ def test_loss_never_reads_source_density_or_draws_extra_batch(monkeypatch):
     monkeypatch.setattr(student, "log_prob", forbidden)
     samples, times = torch.randn(5, 2), torch.linspace(0.1, 0.9, 5)
     teacher = SimpleNamespace(
+        model=torch.nn.Identity().eval(),
         path_sampler=SimpleNamespace(couple=lambda x, y: (x, y),
                                      sample=lambda *args: (times, samples)),
         velocity=lambda x, t: torch.ones_like(x),
@@ -54,10 +55,13 @@ def test_loss_never_reads_source_density_or_draws_extra_batch(monkeypatch):
         return values[:count]
     monkeypatch.setattr(sampling, "_draw", draw)
     expected = (student.velocity(samples, times) - 1).square().mean()
-    actual, components = sampling.mfm_distillation_loss(student, teacher, data, 5, "cpu")
+    query = sampling.sample_mfm_batch(teacher, data, 5, "cpu")
+    actual = sampling.velocity_mse(student, teacher, query)
     torch.testing.assert_close(actual, expected)
     assert draws == [5, 5]
-    assert set(components) == {"velocity_mse"}
+    torch.testing.assert_close(query.x_t, samples)
+    torch.testing.assert_close(query.model_t, times)
+    torch.testing.assert_close(query.target_velocity, torch.ones_like(samples))
     actual.backward()
     grads = [p.grad for p in student.parameters() if p.grad is not None]
     assert grads and all(torch.isfinite(g).all() for g in grads)
@@ -138,6 +142,7 @@ def test_new_run_emits_only_velocity_metadata(tmp_path, monkeypatch):
         source_info={}, normalization={}, split_indices={},
     )
     teacher = SimpleNamespace(
+        model=torch.nn.Identity().eval(),
         metadata={}, velocity=lambda x, t: torch.ones_like(x),
         path_sampler=SimpleNamespace(couple=lambda x, y: (x, y),
                                      sample=lambda x, y, *args: (torch.full((len(x),), .5), x)),
@@ -152,3 +157,75 @@ def test_new_run_emits_only_velocity_metadata(tmp_path, monkeypatch):
     assert "source_nll_weight" not in checkpoint
     assert "source_nll_weight" not in checkpoint["training_config"]["training"]
     assert (tmp_path / "metrics.csv").read_text().splitlines()[0] == ",".join(runner.METRIC_FIELDS)
+
+
+def test_ali_sampler_keeps_independent_endpoints_and_time_draws():
+    class Teacher(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.anchor = torch.nn.Parameter(torch.zeros(()), requires_grad=False)
+            self.eval()
+
+        def interpolate(self, x0, x1, times):
+            return x0 * (1 - times[:, None]) + x1 * times[:, None]
+
+        def velocity(self, x, times, *, context=None):
+            return torch.ones_like(x)
+
+    teacher = Teacher()
+    pools = [torch.arange(12, dtype=torch.float32).reshape(6, 2),
+             torch.arange(12, 24, dtype=torch.float32).reshape(6, 2)]
+    dataset = SimpleNamespace(metadata=SimpleNamespace(name="cite"), observed=[0, 1])
+    rng = torch.Generator().manual_seed(37)
+    query = sampling.sample_ali_batch(teacher, dataset, pools, 4, rng, "independent")
+    replay = torch.Generator().manual_seed(37)
+    x0 = pools[0][torch.randint(6, (4,), generator=replay)]
+    x1 = pools[1][torch.randint(6, (4,), generator=replay)]
+    times = torch.rand(4, generator=replay)
+    torch.testing.assert_close(query.x_t, teacher.interpolate(x0, x1, times))
+    torch.testing.assert_close(query.model_t, times)
+    assert query.target_velocity is None
+    student = TimeDependentGaussianPC(3, 2, 2, polynomial_zero_center=False)
+    expected = (student.velocity(query.x_t, times) - 1).square().mean()
+    torch.testing.assert_close(sampling.velocity_mse(student, teacher, query), expected)
+
+
+def test_shared_loss_rejects_unfrozen_mfm_teacher():
+    student = TimeDependentGaussianPC(3, 2, 2, polynomial_zero_center=False)
+    teacher = SimpleNamespace(model=torch.nn.Linear(2, 2),
+                              velocity=lambda x, t: torch.zeros_like(x))
+    query = sampling.DistillationBatch(torch.zeros(3, 2), torch.zeros(3),
+                                       target_velocity=torch.zeros(3, 2))
+    with pytest.raises(ValueError, match="frozen"):
+        sampling.velocity_mse(student, teacher, query)
+
+
+def test_mfm_sampler_uses_adjacent_observed_marginals_across_holdout(monkeypatch):
+    source = torch.zeros(6, 2)
+    heldout = torch.full((6, 2), 99.)
+    target = torch.ones(6, 2)
+    calls = []
+    def couple(x0, x1):
+        calls.append((x0.clone(), x1.clone()))
+        return x0, x1
+    def sample(x0, x1, left, right):
+        assert (left, right) == (0., 1.)
+        return torch.full((len(x0),), .5), (x0 + x1) / 2
+    teacher = SimpleNamespace(
+        model=torch.nn.Identity().eval(),
+        path_sampler=SimpleNamespace(couple=couple, sample=sample),
+        velocity=lambda values, times: torch.ones_like(values),
+    )
+    data = SimpleNamespace(
+        validation_marginals=[source, heldout, target],
+        observed_indices=[0, 2], times=torch.tensor([0., .5, 1.]),
+    )
+    monkeypatch.setattr(sampling, "_draw", lambda values, count, device: values[:count])
+    batch = sampling.sample_mfm_batch(
+        teacher, data, 4, "cpu", validation=True, interval_index=0
+    )
+    assert len(calls) == 1
+    torch.testing.assert_close(calls[0][0], source[:4])
+    torch.testing.assert_close(calls[0][1], target[:4])
+    torch.testing.assert_close(batch.x_t, torch.full((4, 2), .5))
+    torch.testing.assert_close(batch.target_velocity, torch.ones(4, 2))

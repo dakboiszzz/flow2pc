@@ -13,7 +13,7 @@ import yaml
 
 from flow2pc.data.metric_registry import load_dataset
 from flow2pc.data.restore import restore_dataset
-from flow2pc.distill.sampling import mfm_distillation_loss, sample_batch, velocity_mse
+from flow2pc.distill.sampling import sample_ali_batch, sample_mfm_batch, velocity_mse
 from flow2pc.distill.student import (
     build_optimizer,
     build_student,
@@ -204,7 +204,7 @@ def run(config):
             save(last_path, checkpoint(0))
         for step in range(start, cfg["steps"] + 1):
             student.train()
-            batch = sample_batch(
+            batch = sample_ali_batch(
                 teacher, dataset, pools, cfg["batch_size"], rng, sampler
             )
             optimizer.zero_grad(set_to_none=True)
@@ -528,9 +528,9 @@ def run_mfm(config):
             for step in range(start + 1, total + 1):
                 student.train()
                 optimizer.zero_grad(set_to_none=True)
-                loss, components = mfm_distillation_loss(
-                    student, teacher, data, batch, device
-                )
+                query = sample_mfm_batch(teacher, data, batch, device)
+                loss = velocity_mse(student, teacher, query)
+                components = {"velocity_mse": loss.detach().item()}
                 loss.backward()
                 norm = torch.nn.utils.clip_grad_norm_(
                     student.parameters(),
@@ -548,15 +548,18 @@ def run_mfm(config):
                         validation = float(
                             np.mean(
                                 [
-                                    mfm_distillation_loss(
+                                    velocity_mse(
                                         student,
                                         teacher,
-                                        data,
-                                        batch,
-                                        device,
-                                        validation=True,
-                                        interval_index=index,
-                                    )[0].item()
+                                        sample_mfm_batch(
+                                            teacher,
+                                            data,
+                                            batch,
+                                            device,
+                                            validation=True,
+                                            interval_index=index,
+                                        ),
+                                    ).item()
                                     for index in range(len(data.observed_indices) - 1)
                                 ]
                             )
