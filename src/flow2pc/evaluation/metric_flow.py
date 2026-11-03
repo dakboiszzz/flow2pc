@@ -108,8 +108,6 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
                     .square()
                     .mean()
                     .item(),
-                    "nll_per_dimension": -student.log_prob(reference, t).mean().item()
-                    / data.dim,
                 }
                 if "mean" in data.normalization:
                     mean = torch.tensor(data.normalization["mean"], device=device)
@@ -171,7 +169,9 @@ def evaluate_checkpoint(
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     if checkpoint.get("model_type") != "metric_pc_distill":
         raise ValueError("Expected a metric_pc_distill student checkpoint")
-    config = ExperimentConfig(**checkpoint["training_config"])
+    from flow2pc.utils.mfm_config import checkpoint_training_config
+
+    config = ExperimentConfig(**checkpoint_training_config(checkpoint))
     validate_config(config)
     device = torch.device(device)
     teacher, data = load_resources(config, device)

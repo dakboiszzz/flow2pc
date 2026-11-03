@@ -18,7 +18,7 @@ def test_mfm_config_dispatch_keeps_ali_schema():
     stage, mfm = load_config(ROOT / "configs/distill/mfm/arch/hclt.yaml")
     assert stage == "distill"
     assert mfm.teacher["name"] == "metric_flow"
-    assert mfm.training["source_nll_weight"] == 1.0
+    assert "source_nll_weight" not in mfm.training
 
 
 def test_native_mfm_pretraining_uses_paired_source_config(tmp_path):

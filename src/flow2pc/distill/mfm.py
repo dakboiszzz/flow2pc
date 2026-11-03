@@ -13,35 +13,29 @@ import numpy as np
 import torch
 from torch import nn
 
-from flow2pc.data.metric_registry import load_dataset, validate_combination
+from flow2pc.data.metric_registry import load_dataset
+from flow2pc.distill.student import build_student_from_config as build_student
 from flow2pc.evaluation.metric_flow import evaluate, evaluation_seed
 from flow2pc.pretrain.models.mfm.checkpoint_adapter import load_teacher
+from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
 
 
-from flow2pc.utils.mfm_config import validate_config
+METRIC_FIELDS = ["step", "loss", "velocity_mse", "gradient_norm", "validation_loss"]
 
 
-def build_student(model_config):
-    from flow2pc.pc.hclt_pc import TimeDependentHCLTPC
-    from flow2pc.pc.gaussian_pc import TimeDependentGaussianPC
-
-    if model_config["name"] == "gaussian":
-        return TimeDependentGaussianPC(
-            model_config["num_components"],
-            model_config["dim"],
-            model_config["time_order"],
-            polynomial_zero_center=False,
-        )
-    return TimeDependentHCLTPC(
-        model_config["parents"],
-        num_latents=model_config["num_latents"],
-        time_order=model_config["time_order"],
-        sum_layer="dense",
-        time_conditioning="fourier",
-        time_embedding_dim=model_config["time_embedding_dim"],
-        time_feature_seed=model_config.get("time_feature_seed", 0),
-        fourier_zero_center=False,
-    )
+def metrics_path(output):
+    """Preserve legacy CSVs and append only to a matching velocity-only schema."""
+    path = output / "metrics.csv"
+    if path.exists() and path.stat().st_size:
+        with path.open(newline="") as stream:
+            header = next(csv.reader(stream))
+        if "source_nll_per_dimension" in header:
+            path = output / "metrics_velocity.csv"
+    if path.exists() and path.stat().st_size:
+        with path.open(newline="") as stream:
+            if next(csv.reader(stream)) != METRIC_FIELDS:
+                raise ValueError(f"Incompatible metrics header: {path}")
+    return path
 
 
 def student_config(settings, data, seed):
@@ -107,7 +101,6 @@ def distillation_loss(
     data,
     batch_size,
     device,
-    source_nll_weight=1.0,
     *,
     validation=False,
     interval_index=None,
@@ -133,17 +126,11 @@ def distillation_loss(
     if not torch.isfinite(target).all() or not torch.isfinite(samples).all():
         raise FloatingPointError("Nonfinite metric teacher velocity/geopath points")
     mse = nn.functional.mse_loss(student.velocity(samples.flatten(1), times), target)
-    source = _draw(frames[0], batch_size, device).flatten(1)
-    source_nll = (
-        -student.log_prob(source, torch.zeros(batch_size, device=device)).mean()
-        / data.dim
-    )
-    loss = mse + source_nll_weight * source_nll
+    loss = mse
     if not torch.isfinite(loss):
         raise FloatingPointError("Nonfinite metric distillation loss")
     return loss, {
         "velocity_mse": mse.detach().item(),
-        "source_nll_per_dimension": source_nll.detach().item(),
     }
 
 
@@ -249,10 +236,8 @@ def run(config):
         )
     if checkpoint and checkpoint.get("student_settings") != config.student:
         raise ValueError("Resume student configuration differs from checkpoint")
-    if checkpoint and checkpoint.get("source_nll_weight") != float(
-        training.get("source_nll_weight", 1.0)
-    ):
-        raise ValueError("Resume source NLL weight differs from checkpoint")
+    if checkpoint:
+        checkpoint_training_config(checkpoint, resume=True)
     model_config = (
         checkpoint["model_config"]
         if checkpoint
@@ -329,7 +314,6 @@ def run(config):
                 "best_validation_loss": best,
                 "identity": identity,
                 "rng": _rng(),
-                "source_nll_weight": float(training.get("source_nll_weight", 1.0)),
                 "training_config": asdict(config),
                 "teacher_metadata": teacher.metadata,
                 "data_manifest": manifest,
@@ -337,22 +321,14 @@ def run(config):
             output / "checkpoints" / filename,
         )
 
-    log_path = output / "metrics.csv"
-    needs_header = not log_path.exists()
+    log_path = metrics_path(output)
+    needs_header = not log_path.exists() or log_path.stat().st_size == 0
     batch = int(training.get("batch_size", 128))
-    weight = float(training.get("source_nll_weight", 1.0))
     try:
         with log_path.open("a", newline="") as stream:
             writer = csv.DictWriter(
                 stream,
-                fieldnames=[
-                    "step",
-                    "loss",
-                    "velocity_mse",
-                    "source_nll_per_dimension",
-                    "gradient_norm",
-                    "validation_loss",
-                ],
+                fieldnames=METRIC_FIELDS,
             )
             if needs_header:
                 writer.writeheader()
@@ -360,7 +336,7 @@ def run(config):
                 student.train()
                 optimizer.zero_grad(set_to_none=True)
                 loss, components = distillation_loss(
-                    student, teacher, data, batch, device, weight
+                    student, teacher, data, batch, device
                 )
                 loss.backward()
                 norm = torch.nn.utils.clip_grad_norm_(
@@ -385,7 +361,6 @@ def run(config):
                                         data,
                                         batch,
                                         device,
-                                        weight,
                                         validation=True,
                                         interval_index=index,
                                     )[0].item()

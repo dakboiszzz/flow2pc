@@ -1,4 +1,4 @@
-"""Recovered real-data HCLT setup; all student parameters remain trainable."""
+"""Shared student construction and recovered real-data HCLT setup."""
 
 import networkx as nx
 import numpy as np
@@ -9,6 +9,30 @@ from flow2pc.pc.hclt_pc import TimeDependentHCLTPC
 
 class ClampConsistentHCLTPC(TimeDependentHCLTPC):
     """Compatibility class; HCLT log scale is now unclamped for all datasets."""
+
+
+def build_student_from_config(model_config):
+    """Restore an MFM student without changing its checkpoint parameter layout."""
+    if model_config["name"] == "gaussian":
+        from flow2pc.pc.gaussian_pc import TimeDependentGaussianPC
+
+        return TimeDependentGaussianPC(
+            model_config["num_components"],
+            model_config["dim"],
+            model_config["time_order"],
+            polynomial_zero_center=False,
+        )
+    if model_config["name"] != "hclt":
+        raise ValueError(f"Unknown student: {model_config['name']}")
+    return build_student(
+        model_config["parents"],
+        {
+            "num_latents": model_config["num_latents"],
+            "time_embedding_dim": model_config["time_embedding_dim"],
+            "time_feature_seed": model_config.get("time_feature_seed", 0),
+        },
+        time_order=model_config["time_order"],
+    )
 
 
 def learn_topology(clouds, bins=32):
@@ -34,7 +58,7 @@ def learn_topology(clouds, bins=32):
     return parents
 
 
-def build_student(parents, params, *, clamp_derivative=False):
+def build_student(parents, params, *, clamp_derivative=False, time_order=4):
     if set(params) - {"num_latents", "time_embedding_dim", "time_feature_seed"}:
         raise ValueError(
             "Unsupported student settings; the recovered recipe is a dense Gaussian/Fourier HCLT"
@@ -42,6 +66,7 @@ def build_student(parents, params, *, clamp_derivative=False):
     cls = ClampConsistentHCLTPC if clamp_derivative else TimeDependentHCLTPC
     return cls(
         parents,
+        time_order=time_order,
         num_latents=params.get("num_latents", 128),
         time_conditioning="fourier",
         time_embedding_dim=params.get("time_embedding_dim", 32),

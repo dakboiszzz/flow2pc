@@ -1,8 +1,7 @@
 # Flow2PC
 
 Flow2PC distills frozen flow-matching velocity fields into time-dependent
-probabilistic circuits. ALI-CFM uses teacher-velocity MSE; MFM uses velocity
-MSE plus a configurable source-marginal NLL term.
+probabilistic circuits. ALI-CFM and MFM use teacher-velocity MSE.
 
 ## Retained code
 
@@ -64,9 +63,8 @@ at matching flow and geopath checkpoints, then inspect it with:
 PYTHONPATH=src python main.py --config configs/distill/mfm/arch/hclt.yaml --validate-only
 ```
 
-MFM distillation supports HCLT and Gaussian students. Its source NLL weight
-is recorded in the config and student checkpoint; `0` selects velocity MSE
-alone. The HCLT `log_scale` is not clamped. MFM's physical observation labels,
+MFM distillation supports HCLT and Gaussian students with velocity MSE only.
+The HCLT `log_scale` is not clamped. MFM's physical observation labels,
 normalized model times and preprocessing metadata are kept separate. See
 [MFM integration notes](docs/MFM_INTEGRATION.md) for datasets and limitations.
 
