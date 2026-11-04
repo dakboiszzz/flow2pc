@@ -129,3 +129,18 @@ def sample_mfm_batch(
     if not torch.isfinite(target).all() or not torch.isfinite(samples).all():
         raise FloatingPointError("Nonfinite metric teacher velocity/geopath points")
     return DistillationBatch(samples.flatten(1), times, target_velocity=target)
+
+
+def sample_mmfm_batch(teacher, data, batch_size, device, *, validation=False, interval_index=None):
+    """Query the frozen MMFM field on its own multi-marginal stochastic paths."""
+    require_frozen_teacher(teacher)
+    if not hasattr(teacher, "path_sampler"):
+        from flow2pc.pretrain.models.mmfm.sampling import MMFMPathSampler
+
+        teacher.path_sampler = MMFMPathSampler(teacher.metadata["matcher"], teacher.source_root)
+    with torch.no_grad():
+        times, values, _ = teacher.path_sampler.sample(
+            data, batch_size, device, validation=validation, interval_index=interval_index,
+        )
+        target = teacher.velocity(values, times)
+    return DistillationBatch(values, times, target_velocity=target)

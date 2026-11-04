@@ -1,0 +1,8 @@
+stage: evaluate
+evaluation:
+  backend: mmfm
+  role: student
+  checkpoint: outputs/mmfm/lidar/gaussian/checkpoints/best.pt
+  device: cpu
+output:
+  dir: outputs/mmfm/lidar/gaussian/reevaluation

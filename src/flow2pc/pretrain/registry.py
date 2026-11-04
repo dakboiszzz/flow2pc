@@ -19,7 +19,6 @@ teachers.register(
 )
 teachers.register(
     "mmfm",
-    None,
-    "Not yet migrated into the framework; requires the authentic method "
-    "implementation and its checkpoint adapter.",
+    "flow2pc.pretrain.models.mmfm.trainer:MMFM",
+    "Unconditional native MMFM with minibatch OT on Arch, Sphere and LiDAR.",
 )

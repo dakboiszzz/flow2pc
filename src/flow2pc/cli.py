@@ -59,7 +59,7 @@ def main(argv=None):
             if isinstance(config, tuple):
                 raise ValueError(
                     "--evaluate uses ALI-CFM/OTP-FM checkpoint configs; "
-                    "for MFM use a stage: evaluate config instead"
+                    "for MFM/MMFM use a stage: evaluate config instead"
                 )
             from flow2pc.evaluation.entrypoint import run as evaluate_checkpoint
 
@@ -77,7 +77,10 @@ def main(argv=None):
             try:
                 os.chdir(REPO_ROOT)
                 if stage == "pretrain":
-                    from flow2pc.pretrain.models.mfm.trainer import run
+                    if resolved.get("method") == "mmfm":
+                        from flow2pc.pretrain.models.mmfm.trainer import run
+                    else:
+                        from flow2pc.pretrain.models.mfm.trainer import run
                 elif stage == "distill":
                     from flow2pc.distill.runner import run
                 else:
@@ -85,6 +88,7 @@ def main(argv=None):
 
                     print(json.dumps(evaluate_checkpoint(
                         resolved["checkpoint"],
+                        role=resolved.get("role", "student"),
                         output_dir=resolved.get("output_dir"),
                         device=resolved.get("device", "cpu"),
                         settings=resolved.get("params"),

@@ -1,0 +1,8 @@
+stage: evaluate
+evaluation:
+  backend: mmfm
+  role: teacher
+  checkpoint: outputs/mmfm/eb_phate2/pretrain/checkpoints/best.pt
+  device: cpu
+output:
+  dir: outputs/mmfm/eb_phate2/pretrain/reevaluation

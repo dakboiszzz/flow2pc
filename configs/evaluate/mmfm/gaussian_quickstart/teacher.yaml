@@ -1,0 +1,8 @@
+stage: evaluate
+evaluation:
+  backend: mmfm
+  role: teacher
+  checkpoint: outputs/mmfm/gaussian_quickstart/pretrain/checkpoints/best.pt
+  device: cpu
+output:
+  dir: outputs/mmfm/gaussian_quickstart/pretrain/reevaluation

@@ -8,3 +8,5 @@ MFM_ROOT = Path(os.environ.get("FLOW2PC_MFM_ROOT", REPO_ROOT.parent / "metric-fl
 MFM_PRETRAIN_ROOT = Path(
     os.environ.get("FLOW2PC_MFM_PRETRAIN_ROOT", PRETRAIN_ROOT / "metric-flow-matching")
 )
+
+MMFM_ROOT = Path(os.environ.get("FLOW2PC_MMFM_ROOT", PRETRAIN_ROOT / "MMFM"))

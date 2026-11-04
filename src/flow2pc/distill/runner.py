@@ -13,7 +13,7 @@ import yaml
 
 from flow2pc.data.metric_registry import load_dataset
 from flow2pc.data.restore import restore_dataset
-from flow2pc.distill.sampling import sample_ali_batch, sample_mfm_batch, velocity_mse
+from flow2pc.distill.sampling import sample_ali_batch, sample_mfm_batch, sample_mmfm_batch, velocity_mse
 from flow2pc.distill.student import (
     build_optimizer,
     build_student,
@@ -343,6 +343,14 @@ def _json(value):
 
 
 def _identity(teacher, data):
+    if teacher.metadata.get("method") == "mmfm":
+        return {
+            "method": "mmfm", "flow": teacher.metadata["flow_sha256"],
+            "data": data.source_info["snapshots_sha256"], "split": data.split_indices,
+            "normalization": data.normalization, "heldout": data.heldout_indices,
+            "times": data.times.tolist(), "matcher": teacher.metadata["matcher"],
+            "query_protocol": teacher.metadata["query_protocol"],
+        }
     return {
         "flow": teacher.metadata["flow_sha256"],
         "geopath": teacher.metadata["geopath_sha256"],
@@ -372,6 +380,13 @@ def _restore_rng(state):
 
 def load_resources(config, device):
     """Load explicitly supplied teacher files, then its matching data coordinates."""
+    if config.teacher["name"] == "mmfm":
+        from flow2pc.pretrain.models.mmfm.adapter import load_teacher, load_teacher_data
+
+        teacher = load_teacher({**config.teacher.get("options", {}),
+                                "checkpoint_path": config.teacher["checkpoint_path"],
+                                "dataset": config.dataset["name"]}, device)
+        return teacher, load_teacher_data(teacher, config.dataset)
     training = config.training
     seed = int(training.get("seed", 42))
     teacher_options = {
@@ -393,8 +408,12 @@ def load_resources(config, device):
     return teacher, data
 
 
-def _run_mfm(config):
+def _run_metric(config):
+    from flow2pc.evaluation.metric_flow import evaluate, evaluation_seed
+
     validate_config(config)
+    is_mmfm = config.teacher["name"] == "mmfm"
+    sample_batch = sample_mmfm_batch if is_mmfm else sample_mfm_batch
     training = config.training
     seed = int(training.get("seed", 42))
     random.seed(seed)
@@ -505,7 +524,7 @@ def _run_mfm(config):
     def save(filename, step):
         torch.save(
             {
-                "model_type": "metric_pc_distill",
+                "model_type": "mmfm_pc_distill" if is_mmfm else "metric_pc_distill",
                 "model_config": model_config,
                 "student_settings": config.student,
                 "state_dict": student.state_dict(),
@@ -535,7 +554,7 @@ def _run_mfm(config):
             for step in range(start + 1, total + 1):
                 student.train()
                 optimizer.zero_grad(set_to_none=True)
-                query = sample_mfm_batch(teacher, data, batch, device)
+                query = sample_batch(teacher, data, batch, device)
                 loss = velocity_mse(student, teacher, query)
                 components = {"velocity_mse": loss.detach().item()}
                 loss.backward()
@@ -558,7 +577,7 @@ def _run_mfm(config):
                                     velocity_mse(
                                         student,
                                         teacher,
-                                        sample_mfm_batch(
+                                        sample_batch(
                                             teacher,
                                             data,
                                             batch,
@@ -604,6 +623,9 @@ def _run_mfm(config):
                     save("last.pt", step)
         if config.evaluation.get("enabled", True):
             report = evaluate(student, teacher, data, config.evaluation, device, output)
+            if is_mmfm:
+                from flow2pc.evaluation.metric_flow import save_figures
+                save_figures(output)
             (output / "evaluation.json").write_text(
                 json.dumps(report, indent=2, allow_nan=False) + "\n"
             )
@@ -616,7 +638,7 @@ def _run_mfm(config):
 def run(config):
     """Dispatch distillation using the existing method-specific config contract."""
     if isinstance(config, ExperimentConfig):
-        return _run_mfm(config)
+        return _run_metric(config)
     if isinstance(config, dict):
         return _run_ali(config)
     raise TypeError(f"Unsupported distillation config type: {type(config).__name__}")
