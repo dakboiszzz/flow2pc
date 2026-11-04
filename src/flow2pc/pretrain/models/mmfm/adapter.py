@@ -7,14 +7,15 @@ import torch
 
 from flow2pc.data.metric_profiles import dataset_identity
 from flow2pc.data.metric_registry import load_dataset
-from flow2pc.pretrain.models.mmfm.source import provenance, source_module
+from flow2pc.utils.mfm_source import mmfm_provenance as provenance
+from flow2pc.utils.mfm_source import source_module
 from flow2pc.utils.checkpoint import sha256
 
 
 def build_model(config, source_root):
     if config.get("conditional_model") is not False:
         raise ValueError("Only explicitly unconditional MMFM models are supported")
-    return source_module("models", source_root).VectorFieldModel(**config)
+    return source_module("models", source_root, method="mmfm").VectorFieldModel(**config)
 
 
 def model_velocity(model, values, times):

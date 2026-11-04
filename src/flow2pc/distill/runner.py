@@ -624,7 +624,7 @@ def _run_metric(config):
         if config.evaluation.get("enabled", True):
             report = evaluate(student, teacher, data, config.evaluation, device, output)
             if is_mmfm:
-                from flow2pc.evaluation.mmfm import save_figures
+                from flow2pc.evaluation.metric_flow import save_figures
                 save_figures(output)
             (output / "evaluation.json").write_text(
                 json.dumps(report, indent=2, allow_nan=False) + "\n"

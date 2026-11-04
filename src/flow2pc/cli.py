@@ -86,18 +86,9 @@ def main(argv=None):
                 else:
                     from flow2pc.evaluation.metric_flow import evaluate_checkpoint
 
-                    if resolved.get("backend") == "mmfm":
-                        from flow2pc.evaluation.mmfm import evaluate_checkpoint as evaluate_mmfm
-
-                        print(json.dumps(evaluate_mmfm(
-                            resolved["checkpoint"], role=resolved.get("role", "student"),
-                            output_dir=resolved.get("output_dir"),
-                            device=resolved.get("device", "cpu"), settings=resolved.get("params"),
-                        ), indent=2))
-                        return 0
-
                     print(json.dumps(evaluate_checkpoint(
                         resolved["checkpoint"],
+                        role=resolved.get("role", "student"),
                         output_dir=resolved.get("output_dir"),
                         device=resolved.get("device", "cpu"),
                         settings=resolved.get("params"),

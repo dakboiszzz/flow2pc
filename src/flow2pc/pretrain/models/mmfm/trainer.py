@@ -12,9 +12,9 @@ from flow2pc.data.metric_profiles import dataset_identity
 from flow2pc.data.metric_registry import load_dataset
 from flow2pc.evaluation.metric_flow import evaluation_seed
 from flow2pc.pretrain.models.mmfm.adapter import build_model, model_velocity
-from flow2pc.pretrain.models.mmfm.config import prepare
+from flow2pc.utils.metric_config import prepare_mmfm as prepare
 from flow2pc.pretrain.models.mmfm.sampling import MMFMPathSampler
-from flow2pc.pretrain.models.mmfm.source import provenance
+from flow2pc.utils.mfm_source import mmfm_provenance as provenance
 from flow2pc.utils.checkpoint import atomic_json, atomic_path
 from flow2pc.utils.seed import seed_everything
 
@@ -165,7 +165,7 @@ def run(config):
                     tracker.log(row, step=step)
                 print(f"epoch={epoch} loss={row['train_loss']:.6g} validation={score:.6g}", flush=True)
         if config["evaluation"]["enabled"]:
-            from flow2pc.evaluation.mmfm import evaluate_teacher_checkpoint
+            from flow2pc.evaluation.metric_flow import evaluate_teacher_checkpoint
             # best.pt may belong to the resumed run's original directory.
             selected = output / "checkpoints/best.pt"
             if not selected.is_file() and resume:

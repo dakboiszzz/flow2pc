@@ -4,7 +4,7 @@ import torch
 from scipy.optimize import linear_sum_assignment
 from scipy.spatial.distance import cdist
 
-from flow2pc.pretrain.models.mmfm.source import source_module
+from flow2pc.utils.mfm_source import source_module
 
 
 def couple_chain(pools):
@@ -26,7 +26,7 @@ class MMFMPathSampler:
     def __init__(self, settings, source_root):
         if settings.get("coupling") != "minibatch_ot":
             raise ValueError("Only MMFM minibatch_ot coupling is supported")
-        cls = source_module("multi_marginal_fm", source_root).MultiMarginalFlowMatcher
+        cls = source_module("multi_marginal_fm", source_root, method="mmfm").MultiMarginalFlowMatcher
         self.matcher = cls(sigma=settings["flow_variance"], interpolation=settings["interpolation"])
 
     @torch.no_grad()
