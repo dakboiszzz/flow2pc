@@ -1,0 +1,24 @@
+stage: distill
+seed: 42
+teacher:
+  name: mmfm
+  checkpoint: outputs/mmfm/beijing/pretrain/checkpoints/best.pt
+data:
+  name: mfm_snapshots
+  root: data/mfm/prepared/beijing/seed42
+student:
+  name: hclt
+  params: {}
+distillation:
+  steps: 20000
+  batch_size: 128
+  lr: 0.001
+  device: auto
+output:
+  dir: outputs/mmfm/beijing/hclt
+evaluation:
+  enabled: true
+  samples: 128
+  ode_substeps: 16
+wandb:
+  mode: disabled

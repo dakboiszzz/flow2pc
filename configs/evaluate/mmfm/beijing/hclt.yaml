@@ -1,0 +1,8 @@
+stage: evaluate
+evaluation:
+  backend: mmfm
+  role: student
+  checkpoint: outputs/mmfm/beijing/hclt/checkpoints/best.pt
+  device: cpu
+output:
+  dir: outputs/mmfm/beijing/hclt/reevaluation

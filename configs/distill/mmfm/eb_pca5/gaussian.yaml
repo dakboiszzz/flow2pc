@@ -1,0 +1,24 @@
+stage: distill
+seed: 42
+teacher:
+  name: mmfm
+  checkpoint: outputs/mmfm/eb_pca5/pretrain/checkpoints/best.pt
+data:
+  name: mfm_snapshots
+  root: data/mfm/prepared/eb_pca5/seed42
+student:
+  name: gaussian
+  params: {}
+distillation:
+  steps: 20000
+  batch_size: 128
+  lr: 0.001
+  device: auto
+output:
+  dir: outputs/mmfm/eb_pca5/gaussian
+evaluation:
+  enabled: true
+  samples: 128
+  ode_substeps: 16
+wandb:
+  mode: disabled

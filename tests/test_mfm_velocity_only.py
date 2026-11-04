@@ -18,7 +18,7 @@ def test_runner_dispatches_existing_config_contracts(monkeypatch):
     ali_config = {"stage": "distill"}
     mfm_config = ExperimentConfig(teacher={}, dataset={})
     monkeypatch.setattr(runner, "_run_ali", lambda config: ("ali", config))
-    monkeypatch.setattr(runner, "_run_mfm", lambda config: ("mfm", config))
+    monkeypatch.setattr(runner, "_run_metric", lambda config: ("mfm", config))
     assert runner.run(ali_config) == ("ali", ali_config)
     assert runner.run(mfm_config) == ("mfm", mfm_config)
     with pytest.raises(TypeError, match="Unsupported distillation config type"):

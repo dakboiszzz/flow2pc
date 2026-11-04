@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from flow2pc.utils.experiment import ExperimentConfig
-MODELS = {"mfm": {"load": True, "pretrain": True}}
+MODELS = {name: {"load": True, "pretrain": True} for name in ("mfm", "mmfm")}
 
 DATASETS = ('arch', 'sphere', 'cite', 'multi', 'eb', 'lidar', 'afhq', 'mfm_snapshots')
 
@@ -43,17 +43,24 @@ def prepare(raw):
     if stage not in ('pretrain', 'distill', 'evaluate'):
         raise ValueError('stage must be pretrain, distill, or evaluate')
     if stage == 'pretrain':
-        from flow2pc.pretrain.models.mfm.trainer import prepare
+        if c.get('model', {}).get('name') == 'mmfm':
+            from flow2pc.pretrain.models.mmfm.config import prepare
+        else:
+            from flow2pc.pretrain.models.mfm.trainer import prepare
         return stage, prepare(c)
     output = mapping(c.get('output', {}), 'output')
     if set(output) - {'dir'}:
         raise ValueError('output only supports dir')
     if stage == 'evaluate':
         e = mapping(c.get('evaluation'), 'evaluation')
-        if set(e) - {'backend', 'checkpoint', 'device', 'params'}:
+        if set(e) - {'backend', 'checkpoint', 'device', 'params', 'role'}:
             raise ValueError('Unknown evaluation keys')
-        if e.get('backend') != 'mfm' or not e.get('checkpoint'):
-            raise ValueError('Standalone evaluation currently requires backend: mfm and checkpoint')
+        if e.get('backend') not in ('mfm', 'mmfm') or not e.get('checkpoint'):
+            raise ValueError('Standalone evaluation requires backend: mfm/mmfm and checkpoint')
+        if e.get('role', 'student') not in ('teacher', 'student'):
+            raise ValueError('evaluation.role must be teacher or student')
+        if e['backend'] == 'mfm' and e.get('role', 'student') != 'student':
+            raise ValueError('MFM stage: evaluate expects a student checkpoint')
         return stage, {**e, "output_dir": output.get("dir")}
     data = mapping(c.get('data'), 'data')
     if set(data) - {'name', 'root', 'params'}:
@@ -87,6 +94,8 @@ def prepare(raw):
     if teacher.get('generator_checkpoint'):
         t['generator_path'] = teacher['generator_checkpoint']
     d = {'name': data['name'], **mapping(data.get('params', {}), 'data.params')}
+    if name == 'mmfm':
+        d = {'name': data['name'], 'options': mapping(data.get('params', {}), 'data.params')}
     if 'root' in data:
         d['data_dir'] = data['root']
     st = dict(mapping(student.get('params', {}), 'student.params'))
@@ -94,7 +103,7 @@ def prepare(raw):
         st['pc_structure'] = student['name']
     exp = ExperimentConfig(teacher=t, dataset=d, student=st, training=settings,
                            evaluation=c.get('evaluation', {}), wandb=c.get('wandb', {}))
-    if name == 'mfm':
+    if name in ('mfm', 'mmfm'):
         from flow2pc.utils.mfm_config import validate_config
         validate_config(exp)
     return stage, exp

@@ -1,0 +1,8 @@
+stage: evaluate
+evaluation:
+  backend: mmfm
+  role: student
+  checkpoint: outputs/mmfm/cite50/gaussian/checkpoints/best.pt
+  device: cpu
+output:
+  dir: outputs/mmfm/cite50/gaussian/reevaluation

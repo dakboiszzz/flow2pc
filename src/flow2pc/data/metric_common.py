@@ -177,7 +177,10 @@ def load_afhq(config, metadata):
 
 
 def load(name, config, context):
-    metadata = context["teacher_metadata"]
+    # Pretraining has no teacher checkpoint. Both callers use the same data profile.
+    metadata = context.get("dataset_profile") or context.get("teacher_metadata")
+    if metadata is None:
+        raise ValueError("Metric data requires dataset_profile or teacher_metadata")
     args = metadata["args"]
     validate_dataset(args, name)
     shape = sample_shape(args)

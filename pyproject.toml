@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.11"]
+mmfm = ["addict>=2.4", "seaborn>=0.13"]
 single-cell = ["h5py>=3.10", "POT>=0.9"]
 alicfm = ["h5py>=3.10", "POT>=0.9", "pandas>=2.2", "scikit-learn>=1.5"]
 metric = [

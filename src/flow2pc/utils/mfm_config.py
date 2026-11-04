@@ -1,4 +1,4 @@
-"""Original MFM schema validation; does not load models or data."""
+"""Metric distillation schema validation; does not load models or data."""
 from copy import deepcopy
 import math
 
@@ -26,7 +26,15 @@ def validate_config(config):
     if config.task != "distill":
         raise ValueError("metric_flow supports pretrained-teacher distillation only")
     required = config.teacher.get("checkpoint_path")
-    if not required or not config.teacher.get("options", {}).get("geopath_checkpoint"):
+    if config.teacher["name"] == "mmfm":
+        if not required:
+            raise ValueError("MMFM requires teacher.checkpoint")
+        options = config.teacher.get("options", {})
+        if set(options) - {"source_root"}:
+            raise ValueError("MMFM teacher options only support source_root; no geopath is required")
+        if config.dataset.get("options"):
+            raise ValueError("MMFM distill restores data options from its teacher checkpoint")
+    elif not required or not config.teacher.get("options", {}).get("geopath_checkpoint"):
         raise ValueError(
             "metric_flow config must specify checkpoint_path and options.geopath_checkpoint"
         )
