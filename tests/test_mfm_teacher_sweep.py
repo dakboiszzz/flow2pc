@@ -96,7 +96,7 @@ def test_shared_loader_preserves_coordinates_splits_geometry_and_reload(tmp_path
 def test_original_otp_consistency_model_accepts_no_interior_potential(consistency):
     from flow2pc.pretrain.models.otpfm._source.factory import create_model, create_potentials
 
-    config = yaml.safe_load((ROOT / "configs/pretrain/otpfm_arch.yaml").read_text())["model"]["params"]["native_config"]
+    config = yaml.safe_load((ROOT / "configs/pretrain/otpfm/otpfm_arch.yaml").read_text())["model"]["params"]["native_config"]
     config.update(tks=[], hidden_dim=8, x_emb_dim=8, t_emb_dim=8, num_hidden_layers=2,
                   consistency_loss=consistency)
     potentials = create_potentials(config)

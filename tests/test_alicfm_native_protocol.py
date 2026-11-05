@@ -22,7 +22,7 @@ TAGS = ("cite5", "cite50", "cite100", "multi5", "multi50", "multi100", "st", "ce
 
 
 def config(tag):
-    return yaml.safe_load((ROOT / f"configs/pretrain/alicfm_{tag}.yaml").read_text())
+    return yaml.safe_load((ROOT / f"configs/pretrain/alicfm/alicfm_{tag}.yaml").read_text())
 
 
 @pytest.mark.parametrize("whiten", [False, True])

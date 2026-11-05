@@ -1,0 +1,73 @@
+# Best completed sweep run: knot-c013-h256-l4-lr0.003-b128-w1000-tau0.25-box-meanflow-s42-5578002ee073
+# teacher_mean_emd: 0.01520812705691149; 32/100 completed.
+# Exact scientific settings from the saved resolved_config.yaml.
+# Selected existing checkpoint and selection scope: docs/selected_teachers.json
+stage: pretrain
+seed: 42
+model:
+  name: otpfm
+  params:
+    recipe: W2Inf
+    native_config:
+      potential: w2inf
+      ot_coupling: false
+      solver_type: direct
+      lossfn: mse
+      time_sampler: uniform_scaled_marginal
+      diag_prob: 0.75
+      ema_decay: 0.99
+      ema_ot: true
+      jvp_clamp: 100.0
+      otp_alpha_slope: 6.0
+      x_emb_dim: 64
+      t_emb_dim: 64
+      activation: silu
+      layernorm: true
+      residual_every: 2
+      dropout: 0.0
+      weight_decay: 0.0
+      grad_clip: 0.0
+      hidden_dim: 256
+      num_hidden_layers: 4
+      lr: 0.003
+      batch_size: 128
+      strength: 1000.0
+      width_multiplier: 0.25
+      lambda_type: box
+      consistency_loss: meanflow
+      otp_alpha_mean_scale: 0.5
+data:
+  name: knot
+  root: /data/lthung/ali-cfm-data
+  params:
+    size: 120
+    samples_per_time: 10
+    noise_std: 0.01
+    normalise: false
+    whiten: false
+    validation_fraction: 0.1
+    test_fraction: 0.1
+training:
+  device: cuda:0
+  steps: 10000
+  population_split: all
+logging:
+  mode: offline
+  project: flow2pc
+  name: otpfm-knot-c013-h256-l4-lr0.003-b128-w1000-tau0.25-box-meanflow-s42-5578002ee073-best-config
+output:
+  dir: /data/lthung/flow2pc/pretrain/otpfm/knot/best-config-seed42
+evaluation:
+  enabled: true
+  num_samples: 0
+  metric_samples: 512
+  seed: 2026
+  batch_size: 64
+  tolerance: 1.0e-05
+  max_nfe: 50000
+  solver: rk4
+  ode_steps: 100
+  metric_space: historical
+  source_split: all
+  reference_split: all
+  protocol: shared_ode

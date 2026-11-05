@@ -219,7 +219,7 @@ For a single migrated teacher, the common CLI remains:
 
 ```bash
 PYTHONPATH=src /data/nvidia/conda_envs/uffm/bin/python main.py \
-  --config configs/pretrain/otpfm_gom_w2.yaml
+  --config configs/pretrain/otpfm/otpfm_gom_w2.yaml
 ```
 
 That example uses its config's separate base output directory, rather than the
@@ -275,7 +275,7 @@ selected model and original metric function, with outputs kept separate:
 
 ```bash
 PYTHONPATH=src /data/nvidia/conda_envs/uffm/bin/python main.py \
-  --config configs/pretrain/otpfm_gom_w2.yaml --evaluate teacher \
+  --config configs/pretrain/otpfm/otpfm_gom_w2.yaml --evaluate teacher \
   --set output.dir=/data/lthung/flow2pc/otp-fm/migration-check/migrated/gom/W2/seed42
 ```
 

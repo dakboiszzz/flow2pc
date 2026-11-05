@@ -1,0 +1,79 @@
+# Best completed sweep run: cell_tracking-c021-h256-l4-lr0.0003-b64-w10-tau1-gaussian-meanflow-s42-94011c035cf7
+# teacher_mean_emd: 34.82558575690116; 28/100 completed.
+# Exact scientific settings from the saved resolved_config.yaml.
+# Selected existing checkpoint and selection scope: docs/selected_teachers.json
+stage: pretrain
+seed: 42
+model:
+  name: otpfm
+  params:
+    recipe: W2Inf
+    native_config:
+      potential: w2inf
+      ot_coupling: false
+      solver_type: direct
+      lossfn: mse
+      time_sampler: uniform_scaled_marginal
+      diag_prob: 0.75
+      ema_decay: 0.99
+      ema_ot: true
+      jvp_clamp: 100.0
+      otp_alpha_slope: 6.0
+      x_emb_dim: 64
+      t_emb_dim: 64
+      activation: silu
+      layernorm: true
+      residual_every: 2
+      dropout: 0.0
+      weight_decay: 0.0
+      grad_clip: 0.0
+      hidden_dim: 256
+      num_hidden_layers: 4
+      lr: 0.0003
+      batch_size: 64
+      strength: 10.0
+      width_multiplier: 1.0
+      lambda_type: gaussian
+      consistency_loss: meanflow
+      otp_alpha_mean_scale: 1.0
+data:
+  name: cell_tracking
+  root: /data/lthung/ali-cfm-data
+  params:
+    normalise: true
+    whiten: false
+    validation_fraction: 0.1
+    test_fraction: 0.05
+    preprocessing_protocol: native_all
+training:
+  device: cuda:0
+  steps: 10000
+  population_split: all
+  samples_per_marginal: 10
+logging:
+  mode: offline
+  project: flow2pc
+  name: otpfm-cell_tracking-c021-h256-l4-lr0.0003-b64-w10-tau1-gaussian-meanflow-s42-94011c035cf7-best-config
+output:
+  dir: /data/lthung/flow2pc/pretrain/otpfm/cell_tracking/best-config-seed42
+evaluation:
+  enabled: true
+  num_samples: 0
+  metric_samples: 512
+  seed: 2026
+  batch_size: 64
+  tolerance: 1.0e-05
+  max_nfe: 50000
+  solver: dopri5
+  ode_steps: 100
+  metric_space: historical
+  source_split: all
+  reference_split: all
+  protocol: shared_ode
+  time_indices:
+  - 0
+  - 24
+  - 49
+  - 74
+  - 99
+  - 114

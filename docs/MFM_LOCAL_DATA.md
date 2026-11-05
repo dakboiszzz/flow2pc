@@ -120,13 +120,13 @@ resume qua `--set distillation.resume_checkpoint=...` trên CLI `main.py` hiện
 Muốn distill teacher khác, dùng `distill PROFILE --teacher-run /path/to/pretrain`;
 script lấy đường dẫn snapshot từ binding của teacher, kiểm tra đúng profile.
 
-Các YAML trực tiếp nằm trong `configs/pretrain/mfm/data/` và
-`configs/distill/mfm/data/<profile>/`:
+Các YAML trực tiếp nằm trong `configs/pretrain/mfm/mfm_<profile>.yaml` và
+`configs/distill/mfm/mfm_<profile>_<student>.yaml`:
 
 ```bash
-PYTHONPATH=src python main.py --config configs/pretrain/mfm/data/gom.yaml --validate-only
-PYTHONPATH=src python main.py --config configs/pretrain/mfm/data/gom.yaml
-PYTHONPATH=src python main.py --config configs/distill/mfm/data/gom/hclt.yaml
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/mfm_gom.yaml --validate-only
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/mfm_gom.yaml
+PYTHONPATH=src python main.py --config configs/distill/mfm/mfm_gom_hclt.yaml
 ```
 
 `--validate-only` của MFM kiểm tra cấu hình, không chạy kiểm tra dữ liệu/model

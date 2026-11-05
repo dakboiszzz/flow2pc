@@ -15,8 +15,8 @@ We propose **one installable Python package** consisting of three distinct layer
 The mentor's preferred interface is retained:
 
 ```bash
-python main.py --config configs/pretrain/alicfm_cite50.yaml
-python main.py --config configs/distill/alicfm_cite50_hclt.yaml
+python main.py --config configs/pretrain/alicfm/alicfm_cite50.yaml
+python main.py --config configs/distill/alicfm/alicfm_cite50_hclt.yaml
 ```
 
 These commands describe the **target interface**; they will work only after the corresponding adapters, data loaders, and configs are implemented.

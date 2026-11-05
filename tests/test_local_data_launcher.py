@@ -67,13 +67,24 @@ def test_transport_paths_and_recipe(dataset, recipe):
 
 @pytest.mark.parametrize("arguments,reason", [
     (["distill", "eb", "--method", "otpfm"], "conditional tuple sampler"),
-    (["both", "gom"], "validation design"),
-    (["distill", "beijing"], "validation design"),
     (["both", "eb", "--validate-only"], "Validate stages separately"),
 ])
 def test_unsupported_protocols_fail_before_execution(arguments, reason):
     with pytest.raises(ValueError, match=reason):
         launcher.build_commands(launcher.parser().parse_args(arguments))
+
+
+@pytest.mark.parametrize("dataset", launcher.TRANSPORT_DATASETS)
+def test_ali_transport_uses_the_temporal_validation_preset(dataset):
+    import yaml
+
+    args = launcher.parser().parse_args(["both", dataset, "--dry-run"])
+    commands, _, checkpoint = launcher.build_commands(args)
+    student = yaml.safe_load(Path(commands[1][3]).read_text())
+    assert student["distillation"]["validation_scope"] == "heldout_times"
+    assert overrides(commands[1])["teacher.checkpoint"] == str(checkpoint)
+    assert Path(commands[0][3]).name == f"alicfm_{dataset}.yaml"
+    assert Path(commands[1][3]).name == f"alicfm_{dataset}_hclt.yaml"
 
 
 def test_failed_pretrain_does_not_start_student(tmp_path, monkeypatch):

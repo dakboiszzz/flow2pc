@@ -139,7 +139,7 @@
       "upstream_revision": "501e9db6a3bcb1b96eb893882b62a56f78fe1823",
       "upstream_file": "configs/st/st_cfg.yaml",
       "upstream_sha256": "80b0756523053baba6435715f0bed302be26d75dff911e4e03d18080c3e43d14",
-      "migrated_file": "configs/pretrain/alicfm_st.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_st.yaml",
       "changes": [
         "One explicitly seeded first fold; original ST model sizes, piecewise/l2 objectives, OT, learning rates, batches and update counts.",
         "Native all-marginal preprocessing, full observed populations, pandas CSV loading and original Plotter callbacks restored.",
@@ -150,7 +150,7 @@
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_file": "train_teacher.py",
       "upstream_sha256": "315347179b1a97efdeced2232c1e644ee172ce68f281e0f6fce9d111ef6df99a",
-      "migrated_file": "configs/pretrain/alicfm_knot.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_knot.yaml",
       "changes": [
         "Preserved lifted y2=sin(...)+1, native widths, optimizer algorithms/rates, loss reductions, batch and update budgets. Explicit run seed and configurable settings are framework additions.",
         "Restored full-curve NumPy sampling and the native GAN/CFM statement order; snapshot splits are evaluation/student metadata, not teacher batch pools.",
@@ -161,7 +161,7 @@
       "upstream_file": "configs/single_cell/5D/cite-5D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "60bc8306bdee247b06a998a62b50e56dd88f65612ccdaf586d56e7b15d315a94",
-      "migrated_file": "configs/pretrain/alicfm_cite5.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_cite5.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -171,7 +171,7 @@
       "upstream_file": "configs/single_cell/50D/cite-50D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "e9552eb6a7e4db1cec32440b10a07ba31e0a22e6e7aac087ff1a37e72dbecb42",
-      "migrated_file": "configs/pretrain/alicfm_cite50.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_cite50.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -181,7 +181,7 @@
       "upstream_file": "configs/single_cell/100d/cite-100D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "703d65863c5fbf98326aeb659cb11de2d4d2a478ecdaeaee36c00168ee159404",
-      "migrated_file": "configs/pretrain/alicfm_cite100.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_cite100.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -191,7 +191,7 @@
       "upstream_file": "configs/single_cell/5D/multi-5D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "6582c6be829236278c5b1753a0ad8c50ba6e4f9393c3d88bd9e9a9a623ad6021",
-      "migrated_file": "configs/pretrain/alicfm_multi5.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_multi5.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -201,7 +201,7 @@
       "upstream_file": "configs/single_cell/50D/multi-50D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "18ea0f16e215e38ebc2242d037520b91e8cf0bc5dd8a6a858bc073b194ba01fc",
-      "migrated_file": "configs/pretrain/alicfm_multi50.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_multi50.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -211,7 +211,7 @@
       "upstream_file": "configs/single_cell/100d/multi-100D.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "4223c57fab2ec3e86531576fbdc5e6188029c2af1b375e083ec6a113bf405ff6",
-      "migrated_file": "configs/pretrain/alicfm_multi100.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_multi100.yaml",
       "changes": [
         "One explicitly seeded first fold per job; native all-observed training arrays, all-marginal sequential preprocessing and training callbacks restored.",
         "Shared dataset paths, W&B flow2pc, framework artifacts and explicitly separate post-training evaluation."
@@ -221,7 +221,7 @@
       "upstream_file": "configs/cell_tracking/ali_cell_tracking.yaml",
       "upstream_revision": "a35963ef226e1bbdc6344a944c50e0f42ed67335",
       "upstream_sha256": "d7e037489099e9f0dd8acbc430b961edf90b8b0ea5f4386813153e7c67aa8278",
-      "migrated_file": "configs/pretrain/alicfm_cell_tracking.yaml",
+      "migrated_file": "configs/pretrain/alicfm/alicfm_cell_tracking.yaml",
       "changes": [
         "User selected the repository reconstructed_unverified recipe, not the changed_files checkpoint. Native raw-pixel CFM and all provided scalar settings retained.",
         "Shared prepared mask path, native all-frame min-max and seeded subsets; W&B flow2pc and framework artifact/evaluation plumbing."

@@ -37,6 +37,12 @@ also archived. See [the cleanup and migration notes](docs/MIGRATION.md).
 
 ## Setup
 
+Configs are grouped by method in each stage: `configs/pretrain/alicfm/alicfm_gom.yaml`
+trains a teacher; `configs/distill/alicfm/alicfm_gom_hclt.yaml` distills the selected
+existing teacher. Student filenames distinguish `_hclt` and `_gaussian`.
+See [the config layout](configs/README.md) and
+[selected sweep teachers and scores](docs/SELECTED_TEACHERS.md).
+
 ```bash
 python -m pip install -e '.[dev,alicfm]'
 ```
@@ -75,18 +81,19 @@ run during implementation. The older workflow below remains available.
 MFM pretraining delegates to the original two-phase geopath/flow trainer:
 
 ```bash
-PYTHONPATH=src python main.py --config configs/pretrain/mfm/arch.yaml --validate-only
-PYTHONPATH=src python main.py --config configs/pretrain/mfm/arch.yaml
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/native/mfm_arch_ot.yaml --validate-only
+PYTHONPATH=src python main.py --config configs/pretrain/mfm/native/mfm_arch_ot.yaml
 ```
 
-The 17 runnable MFM pretraining configs are under `configs/pretrain/mfm/`.
+The 17 original MFM pretraining wrappers are under `configs/pretrain/mfm/native/`;
+shared prepared-data presets are `configs/pretrain/mfm/mfm_<dataset>.yaml`.
 Its 22 original MFM/CFM YAML files are preserved under
 `configs/pretrain/mfm/upstream/`; five CFM files are reference-only.
 The trainer writes native Lightning checkpoints. Point a distillation config
 at matching flow and geopath checkpoints, then inspect it with:
 
 ```bash
-PYTHONPATH=src python main.py --config configs/distill/mfm/arch/hclt.yaml --validate-only
+PYTHONPATH=src python main.py --config configs/distill/mfm/native/mfm_arch_hclt.yaml --validate-only
 ```
 
 MFM distillation supports HCLT and Gaussian students with velocity MSE only.
@@ -213,10 +220,10 @@ bash scripts/run_otpfm_ali_data_sweep_8gpu.sh --dry-run
 bash scripts/run_otpfm_ali_data_sweep_8gpu.sh
 ```
 
-Standalone OTP-FM teacher configs live in `configs/pretrain/`. For example:
+Standalone OTP-FM teacher configs live in `configs/pretrain/otpfm/`. For example:
 
 ```bash
-python main.py --config configs/pretrain/otpfm_cite50.yaml
+python main.py --config configs/pretrain/otpfm/otpfm_cite50.yaml
 ```
 
 The sweep prepares 1,000 teachers across ten dataset/dimension profiles and defaults

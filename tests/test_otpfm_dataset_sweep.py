@@ -78,13 +78,13 @@ def test_each_dataset_inherits_its_standalone_otpfm_config(tmp_path, sweep):
 def test_pretrain_presets_are_independently_usable_and_keep_experiment_metrics(tmp_path, sweep):
     specification, _ = specification_and_args(tmp_path, sweep)
     for alias, profile in specification["datasets"].items():
-        assert profile["config"] == f"otpfm_{alias}.yaml"
+        assert profile["config"] == f"otpfm/otpfm_{alias}.yaml"
         config = load_config(ROOT / "configs/pretrain" / profile["config"])
         validate(config)
         assert config["stage"] == "pretrain"
         assert config["model"]["name"] == "otpfm"
         assert config["logging"]["project"] == "flow2pc"
-        original = load_config(ROOT / "configs/pretrain" / f"alicfm_{alias}.yaml")
+        original = load_config(ROOT / "configs/pretrain/alicfm" / f"alicfm_{alias}.yaml")
         assert config["data"] == original["data"]
         evaluation = {**original["evaluation"], "protocol": "shared_ode"}
         if alias == "cell_tracking":

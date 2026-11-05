@@ -7,7 +7,7 @@ code and the student's velocity-MSE objective are not changed.
 
 ## Prepared sweep
 
-Each teacher has a standalone config in `configs/pretrain/`:
+Each teacher has a standalone config in `configs/pretrain/otpfm/`:
 
 ```text
 otpfm_cite5.yaml       otpfm_cite50.yaml       otpfm_cite100.yaml
@@ -21,8 +21,8 @@ output settings. They work directly with the normal project CLI, independently
 of the sweep launcher:
 
 ```bash
-python main.py --config configs/pretrain/otpfm_cite50.yaml
-python main.py --config configs/pretrain/otpfm_cell_tracking.yaml
+python main.py --config configs/pretrain/otpfm/otpfm_cite50.yaml
+python main.py --config configs/pretrain/otpfm/otpfm_cell_tracking.yaml
 ```
 
 `DEFAULT_SWEEP` in `scripts/run_otpfm_dataset_sweep.py` contains the config

@@ -10,12 +10,12 @@ profile="$2"
 shift 2
 case "$profile" in *[!a-zA-Z0-9_]*|'') echo 'Invalid profile' >&2; exit 2;; esac
 case "$stage" in
-  pretrain) config="$repo_root/configs/pretrain/mmfm/$profile.yaml";;
+  pretrain) config="$repo_root/configs/pretrain/mmfm/mmfm_$profile.yaml";;
   distill|evaluate)
     kind=hclt
     if [[ ${1:-} != --* && $# -gt 0 ]]; then kind="$1"; shift; fi
     case "$kind" in hclt|gaussian|teacher) ;; *) echo 'Invalid role/student' >&2; exit 2;; esac
-    config="$repo_root/configs/$stage/mmfm/$profile/$kind.yaml";;
+    config="$repo_root/configs/$stage/mmfm/mmfm_${profile}_${kind}.yaml";;
   *) echo 'Invalid stage' >&2; exit 2;;
 esac
 [[ -f "$config" ]] || { echo "Missing config: $config" >&2; exit 2; }

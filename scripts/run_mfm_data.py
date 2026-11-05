@@ -63,7 +63,7 @@ def commands(args, name):
             values["training.epochs"] = args.epochs
         if args.batch_size is not None:
             values["training.batch_size"] = args.batch_size
-        stages.append((ROOT / f"configs/pretrain/mfm/data/{name}.yaml", values))
+        stages.append((ROOT / f"configs/pretrain/mfm/mfm_{name}.yaml", values))
     if args.action in ("distill", "both"):
         students = ("hclt", "gaussian") if args.student == "both" else (args.student,)
         for student in students:
@@ -75,7 +75,7 @@ def commands(args, name):
                 values["distillation.steps"] = args.steps
             if args.batch_size is not None:
                 values["distillation.batch_size"] = args.batch_size
-            stages.append((ROOT / f"configs/distill/mfm/data/{name}/{student}.yaml", values))
+            stages.append((ROOT / f"configs/distill/mfm/mfm_{name}_{student}.yaml", values))
     result = []
     for config, overrides in stages:
         if not config.is_file():

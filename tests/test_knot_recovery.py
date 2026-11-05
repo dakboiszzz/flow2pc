@@ -32,7 +32,7 @@ def native_tree():
 
 
 def config():
-    return yaml.safe_load((ROOT / "configs/pretrain/alicfm_knot.yaml").read_text())
+    return yaml.safe_load((ROOT / "configs/pretrain/alicfm/alicfm_knot.yaml").read_text())
 
 
 def test_numpy_curve_sampler_is_the_native_lifted_function(native_tree):

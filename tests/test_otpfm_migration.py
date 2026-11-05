@@ -41,7 +41,7 @@ def test_pinned_scientific_definitions_match_supplied_checkout():
 @pytest.mark.parametrize("dataset", ["gom", "beijing"])
 @pytest.mark.parametrize("recipe", ["w2", "w2inf", "mmd", "kl"])
 def test_complete_native_presets_remain_explicit(dataset, recipe):
-    config = load_config(ROOT / f"configs/pretrain/otpfm_{dataset}_{recipe}.yaml")
+    config = load_config(ROOT / f"configs/pretrain/otpfm/otpfm_{dataset}_{recipe}.yaml")
     OTPFMMethod().validate(config)
     assert config["evaluation"]["protocol"] == "native_otpfm"
     assert config["logging"]["project"] == "flow2pc"
@@ -80,7 +80,7 @@ def test_frozen_teacher_queries_diagonal_ema_and_preserves_interval_api():
 
 
 def test_native_protocol_cannot_silently_become_shared_ode():
-    config = load_config(ROOT / "configs/pretrain/otpfm_gom_w2.yaml")
+    config = load_config(ROOT / "configs/pretrain/otpfm/otpfm_gom_w2.yaml")
     config["evaluation"]["protocol"] = "shared_ode"
     with pytest.raises(ValueError, match="native_otpfm"):
         OTPFMMethod().validate(config)

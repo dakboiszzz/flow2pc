@@ -56,8 +56,8 @@ case "$stage" in
       arch)
         variant="${variant:-ot-mfm}"
         case "$variant" in
-          ot-mfm) config="configs/pretrain/mfm/arch.yaml" ;;
-          i-mfm) config="configs/pretrain/mfm/runs/arch/i-mfm.yaml" ;;
+          ot-mfm) config="configs/pretrain/mfm/native/mfm_arch_ot.yaml" ;;
+          i-mfm) config="configs/pretrain/mfm/native/mfm_arch_i.yaml" ;;
           *) echo "Unsupported arch variant: $variant" >&2; exit 2 ;;
         esac
         ;;
@@ -70,7 +70,7 @@ case "$stage" in
           cite*) name=cite; dims="${dataset#cite}" ;;
           multi*) name=multi; dims="${dataset#multi}" ;;
         esac
-        config="configs/pretrain/mfm/runs/single_cell/${dims}dims/${variant}_${name}.yaml"
+        config="configs/pretrain/mfm/native/mfm_${name}${dims}_${variant%-mfm}.yaml"
         ;;
       sphere|lidar|afhq)
         variant="${variant:-mfm}"
@@ -78,9 +78,7 @@ case "$stage" in
           echo "$dataset only supports the mfm variant" >&2
           exit 2
         fi
-        folder="$dataset"
-        [[ "$dataset" != afhq ]] || folder=images
-        config="configs/pretrain/mfm/runs/$folder/mfm.yaml"
+        config="configs/pretrain/mfm/native/mfm_${dataset}.yaml"
         ;;
       *) echo "Unknown pretrain dataset: $dataset" >&2; exit 2 ;;
     esac
@@ -96,13 +94,15 @@ case "$stage" in
       all)
         for student in hclt gaussian; do
           for suffix in '' _t2 _t3; do
-            config="$repo_root/configs/distill/mfm/$dataset/$student$suffix.yaml"
+            config="$repo_root/configs/distill/mfm/native/mfm_${dataset}${suffix}_${student}.yaml"
             if [[ -f "$config" ]]; then configs+=("$config"); fi
           done
         done
         ;;
       hclt|gaussian|hclt_t2|gaussian_t2|hclt_t3|gaussian_t3)
-        configs+=("$repo_root/configs/distill/mfm/$dataset/$variant.yaml")
+        student="${variant%%_*}"
+        suffix="${variant#"$student"}"
+        configs+=("$repo_root/configs/distill/mfm/native/mfm_${dataset}${suffix}_${student}.yaml")
         ;;
       *) echo "Unknown distill variant: $variant" >&2; exit 2 ;;
     esac

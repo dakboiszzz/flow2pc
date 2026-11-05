@@ -29,22 +29,22 @@ from run_alicfm_checks import atomic_json, gpu_inventory, selected_devices  # no
 
 
 # Search orchestration belongs with the launcher. Complete, independently
-# runnable teacher settings live in configs/pretrain/otpfm_<dataset>.yaml.
+# runnable teacher settings live in configs/pretrain/otpfm/otpfm_<dataset>.yaml.
 DEFAULT_SWEEP = {
     "runs_per_dataset": 100,
     "seed": 42,
     "grid_seed": 2026,
     "datasets": {
-        "cite5": {"config": "otpfm_cite5.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "cite50": {"config": "otpfm_cite50.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "cite100": {"config": "otpfm_cite100.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "multi5": {"config": "otpfm_multi5.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "multi50": {"config": "otpfm_multi50.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "multi100": {"config": "otpfm_multi100.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "eb": {"config": "otpfm_eb.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "st": {"config": "otpfm_st.yaml", "ranking_metric": "teacher_heldout_emd"},
-        "cell_tracking": {"config": "otpfm_cell_tracking.yaml", "ranking_metric": "teacher_mean_emd"},
-        "knot": {"config": "otpfm_knot.yaml", "ranking_metric": "teacher_mean_emd"},
+        "cite5": {"config": "otpfm/otpfm_cite5.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "cite50": {"config": "otpfm/otpfm_cite50.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "cite100": {"config": "otpfm/otpfm_cite100.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "multi5": {"config": "otpfm/otpfm_multi5.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "multi50": {"config": "otpfm/otpfm_multi50.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "multi100": {"config": "otpfm/otpfm_multi100.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "eb": {"config": "otpfm/otpfm_eb.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "st": {"config": "otpfm/otpfm_st.yaml", "ranking_metric": "teacher_heldout_emd"},
+        "cell_tracking": {"config": "otpfm/otpfm_cell_tracking.yaml", "ranking_metric": "teacher_mean_emd"},
+        "knot": {"config": "otpfm/otpfm_knot.yaml", "ranking_metric": "teacher_mean_emd"},
     },
     "grid": {
         "hidden_dim": [128, 256, 512],

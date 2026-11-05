@@ -42,8 +42,8 @@ not claimed to reproduce a published ALI/OTP synthetic benchmark.
 Configs follow the existing pretrain organization:
 
 ```text
-configs/pretrain/ali_cfm/alicfm_{arch,sphere,lidar}.yaml
-configs/pretrain/otpfm_{arch,sphere,lidar}.yaml
+configs/pretrain/alicfm/alicfm_{arch,sphere,lidar}.yaml
+configs/pretrain/otpfm/otpfm_{arch,sphere,lidar}.yaml
 ```
 
 For example, commands for the user to execute:
@@ -54,10 +54,10 @@ export FLOW2PC_OUTPUT_ROOT=/data/lthung/flow2pc
 export PYTHONPATH=src
 
 /data/nvidia/conda_envs/uffm/bin/python main.py \
-  --config configs/pretrain/ali_cfm/alicfm_arch.yaml
+  --config configs/pretrain/alicfm/alicfm_arch.yaml
 
 /data/nvidia/conda_envs/uffm/bin/python main.py \
-  --config configs/pretrain/otpfm_arch.yaml
+  --config configs/pretrain/otpfm/otpfm_arch.yaml
 ```
 
 Use a fresh `output.dir` for each teacher. Dataset files and outputs remain

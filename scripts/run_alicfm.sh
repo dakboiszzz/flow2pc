@@ -4,7 +4,7 @@ set -euo pipefail
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: bash scripts/run_alicfm.sh pretrain|distill|evaluate-teacher|evaluate-student DATASET [CLI options]" >&2
-  echo "Datasets: cite5 cite50 cite100 multi5 multi50 multi100 eb st cell_tracking knot" >&2
+  echo "Datasets: cite5 cite50 cite100 multi5 multi50 multi100 eb st cell_tracking knot gom beijing" >&2
   exit 2
 fi
 
@@ -19,11 +19,13 @@ case "$stage" in
   *) echo "Unknown stage: $stage" >&2; exit 2 ;;
 esac
 case "$dataset" in
-  cite5|cite50|cite100|multi5|multi50|multi100|eb|st|cell_tracking|knot) ;;
+  cite5|cite50|cite100|multi5|multi50|multi100|eb|st|cell_tracking|knot|gom|beijing) ;;
   *) echo "Unknown dataset: $dataset" >&2; exit 2 ;;
 esac
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="$repo_root/src${PYTHONPATH:+:$PYTHONPATH}"
+suffix=""
+[[ "$stage" != distill ]] || suffix="_hclt"
 exec "${FLOW2PC_PYTHON:-python}" "$repo_root/main.py" \
-  --config "$repo_root/configs/$stage/ali_cfm/alicfm_$dataset.yaml" "${mode_args[@]}" "$@"
+  --config "$repo_root/configs/$stage/alicfm/alicfm_${dataset}${suffix}.yaml" "${mode_args[@]}" "$@"

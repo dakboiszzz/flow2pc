@@ -209,56 +209,56 @@
       "recipe": "W2",
       "source_file": "/data/lthung/otp-fm/gom/configs/W2.json",
       "source_sha256": "62f255bf210d4510c43a58d5a08dd272ba345c7610fb7ae770e57345c98aabaf",
-      "migrated_file": "configs/pretrain/otpfm_gom_w2.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_gom_w2.yaml"
     },
     {
       "dataset": "gom",
       "recipe": "W2Inf",
       "source_file": "/data/lthung/otp-fm/gom/configs/W2Inf.json",
       "source_sha256": "c6844217bcecf82e6679e19a20f6061a56dbd87c5bec56c91b6b11664bee6426",
-      "migrated_file": "configs/pretrain/otpfm_gom_w2inf.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_gom_w2inf.yaml"
     },
     {
       "dataset": "gom",
       "recipe": "MMD",
       "source_file": "/data/lthung/otp-fm/gom/configs/MMD.json",
       "source_sha256": "621e48744591afd65cc23baf58f08d632666dfed7b4324b4241865be29e02676",
-      "migrated_file": "configs/pretrain/otpfm_gom_mmd.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_gom_mmd.yaml"
     },
     {
       "dataset": "gom",
       "recipe": "KL",
       "source_file": "/data/lthung/otp-fm/gom/configs/KL.json",
       "source_sha256": "b3111266cbb71bc7ba0e63909dde0ab9493ee25abb4403077fed3f0945c34ae7",
-      "migrated_file": "configs/pretrain/otpfm_gom_kl.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_gom_kl.yaml"
     },
     {
       "dataset": "beijing",
       "recipe": "W2",
       "source_file": "/data/lthung/otp-fm/beijing/configs/W2.json",
       "source_sha256": "8e05c08c6f1f6a4546975f09db1b0c0878b188fc92c5d3148a6d871ad1342c93",
-      "migrated_file": "configs/pretrain/otpfm_beijing_w2.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_beijing_w2.yaml"
     },
     {
       "dataset": "beijing",
       "recipe": "W2Inf",
       "source_file": "/data/lthung/otp-fm/beijing/configs/W2Inf.json",
       "source_sha256": "2c8cb06e8170c40472af2d2289b419060b52627e0ae6efd68958a20df8e517f7",
-      "migrated_file": "configs/pretrain/otpfm_beijing_w2inf.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_beijing_w2inf.yaml"
     },
     {
       "dataset": "beijing",
       "recipe": "MMD",
       "source_file": "/data/lthung/otp-fm/beijing/configs/MMD.json",
       "source_sha256": "dc4799d4dcc0a3cbf15a0e0974f071ae1b5d0a770e6fada0fbd3225bdf43256e",
-      "migrated_file": "configs/pretrain/otpfm_beijing_mmd.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_beijing_mmd.yaml"
     },
     {
       "dataset": "beijing",
       "recipe": "KL",
       "source_file": "/data/lthung/otp-fm/beijing/configs/KL.json",
       "source_sha256": "67ebde6e56e9ba7564f7211bd1ac64f95b8fd5bc5be64caf4f20ebaa0da1521f",
-      "migrated_file": "configs/pretrain/otpfm_beijing_kl.yaml"
+      "migrated_file": "configs/pretrain/otpfm/otpfm_beijing_kl.yaml"
     }
   ]
 }

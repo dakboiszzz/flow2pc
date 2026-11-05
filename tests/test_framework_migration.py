@@ -48,7 +48,7 @@ def data_root(tmp_path):
 
 @pytest.fixture
 def config(tmp_path, data_root):
-    raw = yaml.safe_load((ROOT / "configs/pretrain/alicfm_cite50.yaml").read_text())
+    raw = yaml.safe_load((ROOT / "configs/pretrain/alicfm/alicfm_cite50.yaml").read_text())
     raw["data"].update(
         root=str(data_root),
         params={

@@ -165,8 +165,9 @@ def overrides(args, dataset, phase):
 
 def expected_config(args, dataset, phase):
     stage = "pretrain" if phase == "teacher" else "distill"
+    suffix = "" if phase == "teacher" else "_hclt"
     return load_config(
-        ROOT / f"configs/{stage}/alicfm_{dataset.tag}.yaml",
+        ROOT / f"configs/{stage}/alicfm/alicfm_{dataset.tag}{suffix}.yaml",
         overrides(args, dataset, phase),
     )
 

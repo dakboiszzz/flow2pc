@@ -1,0 +1,46 @@
+# Frozen selected ALI-CFM teacher; velocity MSE selects the student.
+# Temporal holdouts are validation, not untouched test populations.
+stage: distill
+seed: 0
+teacher:
+  checkpoint: /data/lthung/flow2pc/alicfm-transport/sweep-512/beijing/beijing-h256-glr0.0005-vlr0.001-ts0.01-reg0-border-R3GAN-s42-2ceb1b2818/checkpoints/last.pt
+student:
+  name: hclt
+  params:
+    num_latents: 128
+    time_embedding_dim: 32
+    time_feature_seed: 0
+distillation:
+  sampler:
+    name: teacher_interpolant
+    params: {}
+  device: cuda:0
+  steps: 20000
+  batch_size: 64
+  lr: 0.001
+  validate_every: 1000
+  checkpoint_every: 1000
+  log_every: 100
+  validation_batches: 4
+  validation_batch_size: 128
+  resume: true
+  validation_scope: heldout_times
+logging:
+  mode: online
+  project: flow2pc
+  name: beijing-alicfm-hclt-h128-lr0.001-s0
+output:
+  dir: /data/lthung/flow2pc/distill/alicfm/beijing/hclt-best-teacher-seed0
+evaluation:
+  enabled: true
+  num_samples: 0
+  metric_samples: 1024
+  seed: 2026
+  batch_size: 128
+  tolerance: 1.0e-05
+  max_nfe: 50000
+  solver: dopri5
+  ode_steps: 100
+  metric_space: raw
+  source_split: all
+  reference_split: all

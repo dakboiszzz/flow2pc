@@ -103,7 +103,7 @@ def build_runs(args):
         params = dict(zip(GRID, values, strict=True))
         digest = hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()[:10]
         for dataset in args.datasets:
-            config = load_config(ROOT / f"configs/pretrain/alicfm_{dataset}.yaml")
+            config = load_config(ROOT / f"configs/pretrain/alicfm/alicfm_{dataset}.yaml")
             name = (f"{dataset}-h{params['width']}-glr{params['gan_lr']:g}-vlr{params['cfm_lr']:g}"
                     f"-ts{params['t_smooth']:g}-reg{params['correct_coeff']:g}"
                     f"-{params['coupling']}-{params['gan_loss']}-s{args.seed}-{digest}")

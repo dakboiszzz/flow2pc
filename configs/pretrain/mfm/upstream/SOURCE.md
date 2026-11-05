@@ -9,5 +9,5 @@ is the source repository's MIT license.
 
 Seventeen YAML files set `mfm: true`; the other five set `mfm: false` and are
 CFM reference configurations. The Flow2PC `stage: pretrain` MFM launcher only
-accepts the former. Runnable Flow2PC wrappers are in `../runs/`, with
-`../arch.yaml` covering `arch/ot-mfm.yaml`.
+accepts the former. Runnable Flow2PC wrappers are in `../native/`, with
+`../native/mfm_arch_ot.yaml` covering `arch/ot-mfm.yaml`.

@@ -17,7 +17,7 @@ REVISION = "501e9db6a3bcb1b96eb893882b62a56f78fe1823"
 
 
 def st_config():
-    return yaml.safe_load((ROOT / "configs/pretrain/alicfm_st.yaml").read_text())
+    return yaml.safe_load((ROOT / "configs/pretrain/alicfm/alicfm_st.yaml").read_text())
 
 
 def test_st_configuration_keeps_historical_method_and_batches():

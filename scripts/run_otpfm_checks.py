@@ -30,7 +30,7 @@ def tasks_for(args):
     for seed in args.seeds:
         for recipe in args.methods:
             for dataset in args.datasets:
-                config = load_config(ROOT / f"configs/pretrain/otpfm_{dataset}_{recipe.lower()}.yaml")
+                config = load_config(ROOT / f"configs/pretrain/otpfm/otpfm_{dataset}_{recipe.lower()}.yaml")
                 output = args.output_root / args.backend / dataset / recipe / f"seed{seed}"
                 config["seed"] = seed
                 config["data"]["root"] = str(args.data_root)

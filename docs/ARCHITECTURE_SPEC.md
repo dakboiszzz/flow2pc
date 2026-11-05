@@ -117,8 +117,8 @@ Create files only as needed; empty packages are not a deliverable. Keep team-own
 
 ```bash
 python main.py --config configs/pretrain/mfm_toy.yaml
-python main.py --config configs/pretrain/alicfm_cite50.yaml
-python main.py --config configs/distill/alicfm_cite50_hclt.yaml
+python main.py --config configs/pretrain/alicfm/alicfm_cite50.yaml
+python main.py --config configs/distill/alicfm/alicfm_cite50_hclt.yaml
 ```
 
 These paths illustrate target behavior; only ship configs that can be validated with an actually available method/dataset. The code must parse `stage: pretrain|distill`, validate required keys, reject unknown model/dataset names, and provide actionable errors. Avoid unvalidated hidden defaults that change scientific settings.

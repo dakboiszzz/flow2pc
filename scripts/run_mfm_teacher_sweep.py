@@ -116,7 +116,7 @@ def build_runs(args, metadata):
             raise ValueError(f"{method} has {len(combinations)} distinct active configurations")
         selected[method] = random.Random(args.grid_seed).sample(combinations, args.runs_per_dataset)
         for name in args.datasets:
-            relative = f"ali_cfm/alicfm_{name}.yaml" if method == "alicfm" else f"otpfm_{name}.yaml"
+            relative = f"{method}/{method}_{name}.yaml"
             presets[method, name] = yaml.safe_load((ROOT / "configs/pretrain" / relative).read_text())
     runs = []
     for index in range(args.runs_per_dataset):

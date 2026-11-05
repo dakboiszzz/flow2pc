@@ -77,12 +77,6 @@ def build_commands(args):
                 "OTP-FM distillation is not integrated: its conditional tuple sampler "
                 "cannot be replaced by the ALI-CFM endpoint interpolant."
             )
-        if args.dataset in TRANSPORT_DATASETS:
-            raise ValueError(
-                "GOM/Beijing pretraining is available, but distillation needs an explicit "
-                "validation design: the transport protocol has no row-validation split. "
-                "Temporal test holdouts must not be reused for student selection."
-            )
 
     data_root = args.data_root.expanduser().resolve()
     run = args.output_root.expanduser().resolve() / args.method / args.dataset
@@ -97,13 +91,11 @@ def build_commands(args):
     commands = []
     for stage in stages:
         if args.method == "alicfm":
-            directory = REPO_ROOT / "configs" / stage
-            if args.dataset in ALI_DATASETS:
-                directory /= "ali_cfm"
-            config = directory / f"alicfm_{args.dataset}.yaml"
+            suffix = "_hclt" if stage == "distill" else ""
+            config = REPO_ROOT / "configs" / stage / "alicfm" / f"alicfm_{args.dataset}{suffix}.yaml"
         else:
             suffix = f"_{args.recipe}" if args.dataset in TRANSPORT_DATASETS else ""
-            config = REPO_ROOT / "configs/pretrain" / f"otpfm_{args.dataset}{suffix}.yaml"
+            config = REPO_ROOT / "configs/pretrain/otpfm" / f"otpfm_{args.dataset}{suffix}.yaml"
         if not config.is_file():
             raise ValueError(f"Missing recipe: {config}")
         command = [args.python, str(REPO_ROOT / "main.py"), "--config", str(config)]
