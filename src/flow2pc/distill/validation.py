@@ -1,16 +1,21 @@
 """Velocity-only checkpoint selection, including recovered late tracking checks."""
 
+import math
+
 import torch
 
 from flow2pc.data.base import heldout_indices
 from flow2pc.distill.sampling import draw, sample_ali_batch
+from flow2pc.utils.experiment_protocols import validation_scope
 
 
 def temporal_validation_contract(dataset, settings):
     """Describe temporal checkpoint selection without changing dataset splits."""
+    if validation_scope(dataset, settings) != "heldout_times":
+        return None
     indices = heldout_indices(dataset)
     if not indices:
-        return None
+        raise ValueError("Held-out-time validation was requested but no times are held out")
     if (
         len(set(indices)) != len(indices)
         or any(
@@ -35,12 +40,62 @@ def temporal_validation_contract(dataset, settings):
 
 
 @torch.no_grad()
+def validate_metric(student, teacher, data, settings, device, sample_batch):
+    """MFM/MMFM validation follows the dataset policy, not the teacher name."""
+    from flow2pc.evaluation.metric_flow import evaluation_seed
+
+    scope = validation_scope(data, settings)
+    batch_size = int(settings.get("validation_batch_size", settings.get("batch_size", 128)))
+    scores = []
+    previous = student.training
+    student.eval()
+    try:
+        with evaluation_seed(1234, device):
+            if scope == "heldout_times":
+                if not data.heldout_indices:
+                    raise ValueError("This dataset has no held-out times for validation")
+                for index in data.heldout_indices:
+                    pools = getattr(data, "test_marginals", data.validation_marginals)
+                    pool = pools[index]
+                    if not len(pool):
+                        raise ValueError(f"Empty validation population at time {index}")
+                    limit = batch_size * int(settings.get("validation_batches", 4))
+                    rows = torch.randperm(len(pool))[:limit]
+                    values = pool[rows].flatten(1).to(device)
+                    times = values.new_full((len(values),), float(data.times[index]))
+                    squared_error, elements = 0.0, 0
+                    for start in range(0, len(values), batch_size):
+                        x, t = values[start:start + batch_size], times[start:start + batch_size]
+                        target = teacher.velocity(x, t)
+                        difference = student.velocity(x, t) - target
+                        squared_error += float(difference.square().sum())
+                        elements += difference.numel()
+                    scores.append(squared_error / elements)
+            else:
+                from flow2pc.distill.sampling import velocity_mse
+
+                for index in range(len(data.observed_indices) - 1):
+                    for _ in range(int(settings.get("validation_batches", 4))):
+                        query = sample_batch(teacher, data, batch_size, device,
+                                             validation=True, interval_index=index)
+                        scores.append(float(velocity_mse(student, teacher, query)))
+        if not scores:
+            raise ValueError("No validation times or observed intervals are available")
+        score = sum(scores) / len(scores)
+        if not math.isfinite(score):
+            raise FloatingPointError("Nonfinite validation velocity MSE")
+        return score
+    finally:
+        student.train(previous)
+
+
+@torch.no_grad()
 def prepare_validation(teacher, dataset, pools, settings, seed, sampler):
     rng = torch.Generator().manual_seed(seed)
     groups = {}
     temporal = temporal_validation_contract(dataset, settings)
     required = {0, len(pools) - 1}
-    if sampler == "mmot_middle":
+    if sampler in ("mmot_middle", "chain_ot"):
         required.update(dataset.observed)
     if all(len(pools[i]) for i in required):
         # Retain the existing observed-time row-validation diagnostic.

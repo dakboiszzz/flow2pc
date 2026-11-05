@@ -52,7 +52,8 @@ calls the original code in `../pretrain/metric-flow-matching` (override with
 `FLOW2PC_MFM_PRETRAIN_ROOT` or `model.params.source_root`). Distillation loads
 frozen flow and geopath checkpoints with the adapter copied from
 `flow2pc-multi-marginal`; its default source is sibling
-`../metric-flow-matching` (override with `FLOW2PC_MFM_ROOT` or
+`../metric-flow-matching`, falling back to `FLOW2PC_MFM_PRETRAIN_ROOT` if absent
+(override with `FLOW2PC_MFM_ROOT` or
 `teacher.params.repo_path`). No source algorithm was replaced with TorchCFM.
 
 Configs cover Arch, Sphere, CITE, Multi, EB, LiDAR and AFHQ. The 22 upstream
@@ -74,9 +75,15 @@ on all source frames, including temporal holdouts. The adapter records
 match the frozen teacher. This is a known exception to the proposed
 training-only normalization rule; changing it requires retraining the teacher.
 
-Only MFM is integrated in this phase. MMFM, `ConditionalGaussianPC`, MNIST
-latent code and source benchmark launchers were not copied. The migrated MFM
+MMFM is integrated separately; see [its integration notes](MMFM_INTEGRATION.md).
+`ConditionalGaussianPC`, MNIST latent code and source benchmark launchers were
+not copied. The migrated MFM
 code requires its original external source and data/checkpoint files; the
 metadata-only CLI can be checked without them except for pretraining source
 and data path existence. Runtime numerical parity and checkpoint reload still
 need verification when test execution is authorized.
+
+Student presets now enable final evaluation and W&B project `flow2pc`.
+`best.pt` is restored for final evaluation, both direct-PC and ODE predictions
+are retained, and shared metrics use exact EMD/W1 rather than sliced Wasserstein.
+See [dataset-specific validation and benchmark conventions](EXPERIMENT_PROTOCOLS.md).

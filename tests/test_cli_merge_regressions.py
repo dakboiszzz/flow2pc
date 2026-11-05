@@ -17,11 +17,11 @@ def test_teacher_registry_preserves_all_implemented_methods():
         "alicfm": "flow2pc.pretrain.models.alicfm.trainer:ALICFM",
         "otpfm": "flow2pc.pretrain.models.otpfm.trainer:OTPFMMethod",
         "mfm": "flow2pc.pretrain.models.mfm.trainer:MFM",
+        "mmfm": "flow2pc.pretrain.models.mmfm.trainer:MMFM",
     }
-    assert set(teachers.describe()) == {*expected, "mmfm"}
+    assert set(teachers.describe()) == set(expected)
     for name, target in expected.items():
         assert teachers.require(name).target == target
-    assert teachers.describe()["mmfm"]["status"] == "unavailable"
 
 
 @pytest.mark.parametrize("role", ["teacher", "student"])

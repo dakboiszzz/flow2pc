@@ -13,8 +13,8 @@ def fixed_subset(pool, count, seed):
     return pool[indices]
 
 
-def emd(real, predicted):
-    """Previous W1 formula: uniform population masses, Euclidean costs, no square root."""
+def emd(real, predicted, *, order=1):
+    """Uniform-mass W1 (Euclidean costs) or W2 (root of squared-cost OT)."""
     import ot
     from scipy.spatial.distance import cdist
 
@@ -24,16 +24,18 @@ def emd(real, predicted):
     )
     if not len(a) or not len(b) or not np.isfinite(a).all() or not np.isfinite(b).all():
         raise ValueError("EMD requires nonempty finite populations")
+    if order not in (1, 2):
+        raise ValueError("Only Wasserstein orders 1 and 2 are supported")
     value, info = ot.emd2(
         np.full(len(a), 1 / len(a)),
         np.full(len(b), 1 / len(b)),
-        cdist(a, b, "euclidean"),
+        cdist(a, b, "euclidean" if order == 1 else "sqeuclidean"),
         numItermax=10_000_000,
         log=True,
     )
     if info.get("warning") or not np.isfinite(value):
         raise RuntimeError(f"EMD solver failed: {info.get('warning')}")
-    return float(value)
+    return float(value) if order == 1 else float(np.sqrt(max(value, 0.0)))
 
 
 def raw_coordinates(values, preprocessing):

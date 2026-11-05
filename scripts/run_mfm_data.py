@@ -38,7 +38,7 @@ def parser():
     result.add_argument("--epochs", type=int, help="Override teacher epochs per phase")
     result.add_argument("--steps", type=int, help="Override student update count")
     result.add_argument("--batch-size", type=int, help="Override requested batch size for both stages")
-    result.add_argument("--logging", choices=("disabled", "offline", "online"), default="disabled")
+    result.add_argument("--logging", choices=("disabled", "offline", "online"), default="online")
     result.add_argument("--python", default=os.environ.get("FLOW2PC_PYTHON", sys.executable))
     result.add_argument("--links-only", action="store_true", help="For prepare: only create source symlinks/catalog")
     result.add_argument("--dry-run", action="store_true")

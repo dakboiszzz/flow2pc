@@ -13,6 +13,7 @@ import yaml
 
 from flow2pc.data.metric_registry import load_dataset
 from flow2pc.data.restore import restore_dataset
+from flow2pc.pretrain.models.alicfm.query_policy import resolve_sampler
 from flow2pc.distill.sampling import sample_ali_batch, sample_mfm_batch, sample_mmfm_batch, velocity_mse
 from flow2pc.distill.student import (
     build_optimizer,
@@ -26,14 +27,16 @@ from flow2pc.distill.validation import (
     prepare_validation,
     temporal_validation_contract,
     validate,
+    validate_metric,
 )
-from flow2pc.pretrain.models.alicfm.trainer import LocalLogger
+from flow2pc.utils.tracking import LocalLogger, log_population_metrics, metric_logger_config
 from flow2pc.pretrain.models.mfm.checkpoint_adapter import load_teacher as load_mfm_teacher
 from flow2pc.pretrain.runner import load_teacher
-from flow2pc.utils.checkpoint import atomic_json, atomic_path, identity, sha256
+from flow2pc.utils.checkpoint import atomic_json, atomic_path, identity, restore_best_checkpoint, sha256
 from flow2pc.utils.experiment import ExperimentConfig
+from flow2pc.utils.experiment_protocols import dataset_tag, validation_scope
 from flow2pc.utils.seed import seed_everything
-from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
+from flow2pc.utils.mfm_config import validate_config, validate_resume_training
 
 
 def prepare(config):
@@ -48,21 +51,7 @@ def prepare(config):
         generator_checkpoint=source.get("generator_checkpoint"),
     )
     dataset = restore_dataset(teacher.manifest["dataset"], teacher.preprocessing)
-    saved_sampler = teacher.manifest.get("distillation_sampler")
-    if saved_sampler is None:
-        # Compatibility with the already-created CITE/Multi framework manifests.
-        saved_sampler = (
-            "mmot_middle" if dataset.metadata.name in ("cite", "multi", "eb") else None
-        )
-    configured = settings["sampler"]["name"]
-    if configured != "teacher_interpolant" or settings["sampler"]["params"]:
-        raise ValueError(
-            "Use teacher_interpolant with empty params; its coupling is bound to the teacher manifest"
-        )
-    if saved_sampler not in ("mmot_middle", "border_ot", "independent"):
-        raise ValueError(
-            "Teacher manifest does not declare a supported query distribution"
-        )
+    saved_sampler = resolve_sampler(teacher.manifest, settings["sampler"])
     return teacher, dataset, saved_sampler
 
 
@@ -133,6 +122,15 @@ def _run_ali(config):
             )
         if previous["binding"] != binding:
             raise ValueError("Resume teacher/data/model/training binding changed")
+        if previous.get("best_step") is not None:
+            selected_path = output / "checkpoints/best.pt"
+            if not selected_path.is_file():
+                raise ValueError("Resume selected weights are missing: restore checkpoints/best.pt")
+            selected = torch.load(selected_path, map_location="cpu", weights_only=True)
+            if (selected.get("binding") != binding
+                    or selected.get("step") != previous["best_step"]
+                    or selected.get("best_selection_score") != previous["best_selection_score"]):
+                raise ValueError("Resume best.pt does not match the saved selection history")
     parents = (
         previous["model_config"]["parents"]
         if previous
@@ -253,6 +251,19 @@ def _run_ali(config):
                 if scores["selection_score"] < best:
                     best, best_step = scores["selection_score"], step
                     save(output / "checkpoints/best.pt", checkpoint(step))
+                if cfg.get("validation_population_metrics", True):
+                    from flow2pc.evaluation.metric_flow import evaluate as population_evaluate, from_ali_dataset
+                    view = from_ali_dataset(dataset)
+                    scope = validation_scope(dataset, cfg)
+                    diagnostics = population_evaluate(student, teacher, view, {
+                        "samples": cfg.get("validation_batch_size", 128),
+                        "source_split": "all" if scope == "heldout_times" else "validation",
+                        "reference_split": "validation",
+                        "time_indices": view.heldout_indices if scope == "heldout_times" else view.observed_indices,
+                        "metric_space": "dataset", "solver": "dopri5", "seed": 2026,
+                    }, device)
+                    diagnostics["checkpoint_step"] = step
+                    log_population_metrics(logger, diagnostics, namespace="validation")
                 print(
                     f"step={step} velocity_mse={float(loss.detach()):.6g} validation_score={scores['selection_score']:.6g}",
                     flush=True,
@@ -272,6 +283,7 @@ def _run_ali(config):
                 logger.log(row)
         if config.get("evaluation", {}).get("enabled", False):
             from flow2pc.evaluation.runner import evaluate
+            from flow2pc.evaluation.metric_flow import _numerical_failure
 
             selected = torch.load(
                 output / "checkpoints/best.pt", map_location="cpu", weights_only=True
@@ -280,16 +292,51 @@ def _run_ali(config):
             reference = (
                 Path(config["teacher"]["checkpoint"]).resolve().parent.parent / "eval"
             )
-            evaluate(
-                teacher,
-                dataset,
-                config["evaluation"],
-                output / "eval",
-                student=student,
-                logger=logger,
-                checkpoint_step=selected["step"],
-                reference_dir=reference,
-            )
+            try:
+                evaluate(
+                    teacher,
+                    dataset,
+                    config["evaluation"],
+                    output / "eval",
+                    student=student,
+                    logger=logger,
+                    checkpoint_step=selected["step"],
+                    reference_dir=reference,
+                )
+            except (FloatingPointError, RuntimeError, AssertionError) as error:
+                if not _numerical_failure(error):
+                    raise
+                atomic_json(output / "eval/ode_error.json", {"error": str(error)})
+                logger.log({"eval/historical_ode_error": str(error)})
+        if config.get("evaluation", {}).get("enabled", False):
+            from flow2pc.evaluation.metric_flow import evaluate as population_evaluate, from_ali_dataset
+            population_report = population_evaluate(student, teacher, from_ali_dataset(dataset), {
+                "samples": config["evaluation"].get("metric_samples", 512) or max(len(pool) for pool in pools),
+                "batch_size": config["evaluation"].get("batch_size", 64),
+                "metric_space": "dataset", "solver": config["evaluation"].get("solver", "dopri5"),
+                "tolerance": config["evaluation"].get("tolerance", 1e-5),
+                "max_nfe": config["evaluation"].get("max_nfe", 50000),
+                "ode_substeps": max(1, math.ceil(config["evaluation"].get("ode_steps", 100) / (len(dataset.metadata.model_times) - 1))),
+                "source_split": {"val": "validation"}.get(config["evaluation"].get("source_split"), config["evaluation"].get("source_split", "all")),
+                "reference_split": {"val": "validation"}.get(config["evaluation"].get("reference_split"), config["evaluation"].get("reference_split", "all")),
+                "time_indices": config["evaluation"].get("time_indices", list(range(len(dataset.metadata.model_times)))),
+                "seed": config["evaluation"].get("seed", 2026),
+            }, device, output / "eval/population")
+            population_report["checkpoint_step"] = selected["step"]
+            atomic_json(output / "eval/population/evaluation.json", population_report)
+            # Historical rollout scores/overlays remain available; name the
+            # shared benchmark explicitly instead of silently replacing them.
+            metrics_path = output / "eval/metrics.json"
+            if metrics_path.is_file():
+                metrics = json.loads(metrics_path.read_text())
+                metrics["population_diagnostics"] = "population/evaluation.json"
+                atomic_json(metrics_path, metrics)
+            log_population_metrics(logger, population_report, output=output / "eval/population")
+            existing_media = output / "eval/media.json"
+            media = json.loads(existing_media.read_text()) if existing_media.is_file() else {}
+            media.update({"pc_ode_" + key: value for key, value in
+                          json.loads((output / "eval/population/media.json").read_text()).items()})
+            atomic_json(existing_media, media)
         if teacher.training or any(p.requires_grad for p in teacher.parameters()):
             raise RuntimeError("Frozen teacher contract was changed")
         if logger.run is not None:
@@ -424,7 +471,7 @@ def load_resources(config, device):
 
 
 def _run_metric(config):
-    from flow2pc.evaluation.metric_flow import evaluate, evaluation_seed
+    from flow2pc.evaluation.metric_flow import evaluate
 
     validate_config(config)
     is_mmfm = config.teacher["name"] == "mmfm"
@@ -453,6 +500,9 @@ def _run_metric(config):
         raise FileExistsError(f"Refusing to overwrite nonempty run: {output}")
     teacher, data = load_resources(config, device)
     identity = _identity(teacher, data)
+    validation_protocol = {"version": 2, "scope": validation_scope(data, training),
+                           "heldout_indices": list(data.heldout_indices),
+                           "selection": "velocity_MSE_only"}
     checkpoint = (
         torch.load(resume_path, map_location="cpu", weights_only=False)
         if resume_path
@@ -462,10 +512,12 @@ def _run_metric(config):
         raise ValueError(
             "Resume teacher, data, normalization, or split differs from checkpoint"
         )
+    if checkpoint and checkpoint.get("validation_protocol", {**validation_protocol, "scope": "observed_rows"}) != validation_protocol:
+        raise ValueError("Resume validation protocol changed; use a fresh output directory")
     if checkpoint and checkpoint.get("student_settings") != config.student:
         raise ValueError("Resume student configuration differs from checkpoint")
     if checkpoint:
-        checkpoint_training_config(checkpoint, resume=True)
+        validate_resume_training(checkpoint, training)
     model_config = (
         checkpoint["model_config"]
         if checkpoint
@@ -492,6 +544,8 @@ def _run_metric(config):
         raise ValueError("steps must exceed the resumed checkpoint step")
     output.mkdir(parents=True, exist_ok=True)
     (output / "checkpoints").mkdir(exist_ok=True)
+    if checkpoint:
+        restore_best_checkpoint(checkpoint, resume_path, output)
     manifest = {
         "source_info": data.source_info,
         "normalization": data.normalization,
@@ -523,22 +577,14 @@ def _run_metric(config):
             },
             output / "topology.pt",
         )
-    tracker = None
-    if config.wandb.get("mode", "disabled") != "disabled":
-        import wandb
-
-        tracker = wandb.init(
-            project=config.wandb.get("project", "flow2pc"),
-            mode=config.wandb["mode"],
-            group=config.wandb.get("group", "metric-flow"),
-            name=config.wandb.get("run_name"),
-            config=_json(asdict(config)),
-            dir=str(output.resolve()),
-        )
+    logger = LocalLogger(output, metric_logger_config(asdict(config),
+                         method="mmfm" if is_mmfm else "mfm", stage="distill",
+                         dataset=dataset_tag(data)),
+                         append=checkpoint is not None)
 
     def save(filename, step):
-        torch.save(
-            {
+        with atomic_path(output / "checkpoints" / filename) as temporary:
+            torch.save({
                 "model_type": "mmfm_pc_distill" if is_mmfm else "metric_pc_distill",
                 "model_config": model_config,
                 "student_settings": config.student,
@@ -546,19 +592,21 @@ def _run_metric(config):
                 "optimizer_state_dict": optimizer.state_dict(),
                 "step": step,
                 "best_validation_loss": best,
+                "validation_protocol": validation_protocol,
                 "identity": identity,
                 "rng": _rng(),
                 "training_config": asdict(config),
                 "teacher_metadata": teacher.metadata,
                 "data_manifest": manifest,
-            },
-            output / "checkpoints" / filename,
-        )
+            }, temporary)
 
     log_path = metrics_path(output)
     needs_header = not log_path.exists() or log_path.stat().st_size == 0
     batch = int(training.get("batch_size", 128))
     try:
+        atomic_json(output / "status.json", {"status": "running"})
+        if checkpoint is None:
+            save("last.pt", 0)
         with log_path.open("a", newline="") as stream:
             writer = csv.DictWriter(
                 stream,
@@ -581,33 +629,26 @@ def _run_metric(config):
                 optimizer.step()
                 validation = None
                 if (
-                    step % int(training.get("validate_every", 1000)) == 0
+                    step == 1
+                    or step % int(training.get("validate_every", 1000)) == 0
                     or step == total
                 ):
                     student.eval()
-                    with torch.no_grad(), evaluation_seed(1234, device):
-                        validation = float(
-                            np.mean(
-                                [
-                                    velocity_mse(
-                                        student,
-                                        teacher,
-                                        sample_batch(
-                                            teacher,
-                                            data,
-                                            batch,
-                                            device,
-                                            validation=True,
-                                            interval_index=index,
-                                        ),
-                                    ).item()
-                                    for index in range(len(data.observed_indices) - 1)
-                                ]
-                            )
-                        )
+                    validation = validate_metric(student, teacher, data, training,
+                                                 device, sample_batch)
                     if validation < best:
                         best = validation
                         save("best.pt", step)
+                    if training.get("validation_population_metrics", True):
+                        scope = validation_scope(data, training)
+                        settings = {**config.evaluation,
+                                    "samples": int(training.get("validation_batch_size", batch)),
+                                    "source_split": "all" if scope == "heldout_times" else "validation",
+                                    "reference_split": "validation",
+                                    "time_indices": data.heldout_indices if scope == "heldout_times" else data.observed_indices}
+                        diagnostics = evaluate(student, teacher, data, settings, device)
+                        diagnostics["checkpoint_step"] = step
+                        log_population_metrics(logger, diagnostics, namespace="validation")
                 if (
                     step % int(training.get("log_every", 100)) == 0
                     or validation is not None
@@ -622,10 +663,7 @@ def _run_metric(config):
                     }
                     writer.writerow(row)
                     stream.flush()
-                    if tracker:
-                        tracker.log(
-                            {k: v for k, v in row.items() if v is not None}, step=step
-                        )
+                    logger.log({k: v for k, v in row.items() if v is not None})
                     print(
                         f"step {step}/{total}: loss={loss.item():.6g}, validation={validation}",
                         flush=True,
@@ -633,20 +671,29 @@ def _run_metric(config):
                 if (
                     step % int(training.get("checkpoint_every", 5000)) == 0
                     or step == total
+                    or validation is not None
                 ):
                     save(f"step_{step}.pt", step)
                     save("last.pt", step)
         if config.evaluation.get("enabled", True):
+            selected_path = output / "checkpoints/best.pt"
+            selected = torch.load(selected_path, map_location="cpu", weights_only=False)
+            if selected["identity"] != identity:
+                raise ValueError("Selected student has a different teacher/data identity")
+            student.load_state_dict(selected["state_dict"], strict=True)
             report = evaluate(student, teacher, data, config.evaluation, device, output)
-            if is_mmfm:
-                from flow2pc.evaluation.metric_flow import save_figures
-                save_figures(output)
+            report.update(checkpoint_step=selected["step"], checkpoint=str(selected_path.resolve()))
+            log_population_metrics(logger, report, output=output)
             (output / "evaluation.json").write_text(
                 json.dumps(report, indent=2, allow_nan=False) + "\n"
             )
-    finally:
-        if tracker:
-            tracker.finish()
+        atomic_json(output / "status.json", {"status": "complete", "best_validation_loss": best})
+    except BaseException as error:
+        atomic_json(output / "status.json", {"status": "failed", "error": str(error)})
+        logger.close(failed=True)
+        raise
+    else:
+        logger.close()
     return output
 
 

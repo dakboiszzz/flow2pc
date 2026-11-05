@@ -6,7 +6,8 @@ adaptations using native MMFM models and interpolants, with minibatch OT chains.
 They are not claims of reproducing the upstream conditional experiments.
 
 Install Flow2PC's `mmfm` extra alongside dependencies needed by the dataset.
-The source checkout defaults to `../pretrain/MMFM`; source file hashes are stored
+The source checkout defaults to `../pretrain/MMFM` (override with
+`FLOW2PC_MMFM_ROOT` or `model.params.source_root`); source file hashes are stored
 in teacher checkpoints. No upstream source, data or checkpoints are vendored.
 
 Configs read the existing prepared MFM snapshots under
@@ -29,11 +30,16 @@ For resume, set `training.resume_checkpoint` for teacher training or
 
 Native MMFM pretraining learns the conditional-flow target of its stochastic
 interpolant. Distillation instead matches the frozen teacher's predicted velocity
-using the shared velocity MSE. No NLL is optimized. Validation draws only from
-observed validation marginals; temporal holdouts are evaluation references.
+using the shared velocity MSE. No NLL is optimized. Student validation follows
+the dataset's policy: reserved observed rows for single-cell/ST and held-out
+times for GOM/Beijing. The native MMFM teacher's validation objective is unchanged.
 
-Evaluation writes metrics, trajectories and ODE line figures. High-dimensional
-figures display the first two coordinates, not PCA recomputed for plotting.
-These figures are in teacher input coordinates; they do not reproduce the native
-LiDAR terrain background. Numerical behavior has not been verified by running
-training, evaluation or tests in this implementation session.
+Final student evaluation loads `best.pt` and writes exact EMD/W1 (also W2 for
+transport), trajectories, and observed/teacher ODE/student ODE/direct-PC comparison
+panels. Plots use raw coordinates, with the first two features in high dimensions;
+metrics use all features in their explicitly recorded coordinate system. W&B
+presets use project `flow2pc`, with communication failures falling back locally.
+These figures do not reproduce the native LiDAR terrain background. See
+[experiment protocols and limits of paper alignment](EXPERIMENT_PROTOCOLS.md).
+Numerical behavior has not been verified by running training, evaluation or tests
+in this implementation session.

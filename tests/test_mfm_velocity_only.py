@@ -144,13 +144,14 @@ def test_new_run_emits_only_velocity_metadata(tmp_path, monkeypatch):
         teacher={"name": "metric_flow", "checkpoint_path": "flow.ckpt",
                  "options": {"geopath_checkpoint": "geo.ckpt"}},
         dataset={"name": "arch"}, student={"pc_structure": "gaussian"},
-        training={"steps": 1, "batch_size": 4, "device": "cpu", "output_dir": str(tmp_path)},
+        training={"steps": 1, "batch_size": 4, "device": "cpu", "output_dir": str(tmp_path),
+                  "validation_population_metrics": False},
         evaluation={"enabled": False}, wandb={"mode": "disabled"}, task="distill",
     )
     frames = [torch.randn(8, 2), torch.randn(8, 2)]
     data = SimpleNamespace(
         train_marginals=frames, validation_marginals=frames,
-        observed_indices=[0, 1], times=torch.tensor([0., 1.]),
+        observed_indices=[0, 1], heldout_indices=[], times=torch.tensor([0., 1.]),
         source_info={}, normalization={}, split_indices={},
     )
     teacher = SimpleNamespace(

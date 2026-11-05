@@ -61,7 +61,7 @@ def test_temporal_validation_uses_only_heldout_cells_at_model_times(monkeypatch)
     dataset, teacher = TemporalDataset(), Teacher()
     pools = empty_validation_pools(dataset)
     monkeypatch.setattr(
-        validation, "sample_batch",
+        validation, "sample_ali_batch",
         lambda *args: pytest.fail("Empty row-validation pools must not be sampled"),
     )
     groups, _ = validation.prepare_validation(
@@ -121,7 +121,7 @@ def test_row_diagnostic_does_not_override_temporal_selection(monkeypatch):
     dataset, teacher = TemporalDataset(), Teacher()
     pools = [torch.ones(2, 1) for _ in dataset.metadata.model_times]
     monkeypatch.setattr(
-        validation, "sample_batch",
+        validation, "sample_ali_batch",
         lambda *args: DistillationBatch(torch.ones(2, 1), torch.full((2,), 0.9)),
     )
     groups, energy = validation.prepare_validation(
@@ -135,10 +135,11 @@ def test_row_diagnostic_does_not_override_temporal_selection(monkeypatch):
 def test_no_temporal_holdouts_preserves_row_validation(monkeypatch):
     dataset, teacher = TemporalDataset(), Teacher()
     dataset.heldout_indices = []
+    dataset.metadata.name = "knot"
     dataset.observed = list(range(5))
     pools = [torch.ones(2, 1) for _ in dataset.metadata.model_times]
     monkeypatch.setattr(
-        validation, "sample_batch",
+        validation, "sample_ali_batch",
         lambda *args: DistillationBatch(torch.ones(2, 1), torch.full((2,), 0.9)),
     )
     groups, energy = validation.prepare_validation(

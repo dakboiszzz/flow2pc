@@ -1,6 +1,6 @@
 """Metric distillation schema validation; does not load models or data."""
-from copy import deepcopy
 import math
+from copy import deepcopy
 
 from flow2pc.utils.combinations import validate_combination
 
@@ -18,6 +18,16 @@ def checkpoint_training_config(checkpoint, *, resume=False):
         raise ValueError("Cannot resume a legacy checkpoint with nonzero source NLL weight")
     training.pop("source_nll_weight", None)
     return config
+
+
+def validate_resume_training(checkpoint, training):
+    previous = checkpoint_training_config(checkpoint, resume=True)["training"]
+    defaults = {"batch_size": 128, "lr": 0.001, "seed": 42, "gradient_clip": 1.0,
+                "validation_scope": "dataset", "validation_batches": 4,
+                "validation_batch_size": 128}
+    for key, default in defaults.items():
+        if previous.get(key, default) != training.get(key, default):
+            raise ValueError(f"Resume training.{key} changed; use a fresh output directory")
 
 
 def validate_config(config):
@@ -67,15 +77,27 @@ def validate_config(config):
             "log_every",
             "validate_every",
             "checkpoint_every",
+            "validation_scope",
+            "validation_batches",
+            "validation_batch_size",
+            "validation_population_metrics",
         },
         "evaluation": {
             "enabled",
             "samples",
+            "batch_size",
             "projections",
             "ode_substeps",
             "seed",
             "decode_images",
             "vae_path",
+            "metric_space",
+            "source_split",
+            "reference_split",
+            "time_indices",
+            "solver",
+            "tolerance",
+            "max_nfe",
         },
         "wandb": {"mode", "project", "group", "run_name"},
     }
@@ -93,13 +115,39 @@ def validate_config(config):
     for key, default in counts.items():
         if int(config.training.get(key, default)) < 1:
             raise ValueError(f"{key} must be positive")
+    if config.training.get("validation_scope", "dataset") not in ("dataset", "observed_rows", "heldout_times"):
+        raise ValueError("Invalid validation_scope")
+    for key in ("validation_batches", "validation_batch_size"):
+        if key in config.training and (type(config.training[key]) is not int or config.training[key] < 1):
+            raise ValueError(f"{key} must be a positive integer")
+    if type(config.training.get("validation_population_metrics", True)) is not bool:
+        raise ValueError("validation_population_metrics must be boolean")
+    if config.evaluation.get("metric_space", "dataset") not in ("dataset", "raw", "teacher"):
+        raise ValueError("Invalid metric_space")
+    if config.evaluation.get("solver", "rk4") not in ("rk4", "dopri5", "euler"):
+        raise ValueError("Invalid evaluation solver")
+    for key in ("source_split", "reference_split"):
+        if config.evaluation.get(key, "all") not in ("all", "train", "validation", "test"):
+            raise ValueError(f"Invalid evaluation.{key}")
+    tolerance = float(config.evaluation.get("tolerance", 1e-5))
+    if not math.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("evaluation.tolerance must be finite and positive")
+    indices = config.evaluation.get("time_indices")
+    if indices is not None and (not isinstance(indices, list) or not indices
+            or any(type(i) is not int or i < 0 for i in indices)
+            or indices != sorted(set(indices))):
+        raise ValueError("evaluation.time_indices must be sorted unique nonnegative integers")
+    for key in ("enabled", "decode_images"):
+        if key in config.evaluation and type(config.evaluation[key]) is not bool:
+            raise ValueError(f"evaluation.{key} must be boolean")
     for key, default in (("lr", 0.001), ("gradient_clip", 1.0)):
         value = float(config.training.get(key, default))
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{key} must be finite and positive")
-    for key, default in (("samples", 128), ("projections", 32), ("ode_substeps", 8)):
-        if int(config.evaluation.get(key, default)) < 1:
-            raise ValueError(f"evaluation.{key} must be positive")
+    for key, default in (("samples", 128), ("batch_size", 128), ("projections", 32), ("ode_substeps", 8), ("max_nfe", 20000)):
+        value = config.evaluation.get(key, default)
+        if type(value) is not int or value < 1:
+            raise ValueError(f"evaluation.{key} must be a positive integer")
     for key, default in (
         ("num_latents", 64),
         ("num_components", 64),

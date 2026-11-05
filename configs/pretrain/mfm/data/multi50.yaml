@@ -7,7 +7,6 @@ model:
   name: mfm
   params:
     backend: snapshots
-    source_root: ../pretrain/metric-flow-matching
     native:
       hidden_dims_geopath:
       - 1024
@@ -47,4 +46,5 @@ training:
 output:
   dir: outputs/mfm/multi50/default/pretrain
 wandb:
-  mode: disabled
+  project: flow2pc
+  mode: online

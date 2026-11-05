@@ -5,7 +5,6 @@ teacher:
   name: mfm
   checkpoint: outputs/mfm/lidar/default/pretrain/checkpoints/flow.pt
   params:
-    repo_path: ../pretrain/metric-flow-matching
     geopath_checkpoint: outputs/mfm/lidar/default/pretrain/checkpoints/geopath.pt
 data:
   name: mfm_snapshots
@@ -19,6 +18,8 @@ student:
     topology_samples: 2048
     time_order: 4
 distillation:
+  validation_scope: dataset
+  validation_population_metrics: true
   steps: 20000
   batch_size: 128
   lr: 0.001
@@ -31,6 +32,11 @@ distillation:
 output:
   dir: outputs/mfm/lidar/default/distill/hclt
 evaluation:
-  enabled: false
+  metric_space: dataset
+  solver: dopri5
+  samples: 2048
+  seed: 2026
+  enabled: true
 wandb:
-  mode: disabled
+  project: flow2pc
+  mode: online

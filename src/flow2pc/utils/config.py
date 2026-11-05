@@ -67,6 +67,7 @@ def load_config(path, overrides=()):
 
 
 def resolve_config(raw, *, base):
+    raw = expand(copy.deepcopy(raw))
     if isinstance(raw, dict) and (raw.get("stage") == "evaluate" or (
         raw.get("stage") == "pretrain"
         and isinstance(raw.get("model"), dict)
@@ -194,6 +195,8 @@ def resolve_config(raw, *, base):
                 "validation_batches",
                 "validation_batch_size",
                 "teacher_path_particles",
+                "validation_scope",
+                "validation_population_metrics",
             },
             {"sampler", "steps", "batch_size", "lr"},
         )
@@ -203,6 +206,11 @@ def resolve_config(raw, *, base):
         if not isinstance(d["sampler"].setdefault("params", {}), dict):
             raise ValueError("sampler.params must be a mapping")
         from math import isfinite
+
+        from flow2pc.utils.experiment_protocols import validation_scope
+        validation_scope(None, {"validation_scope": d.get("validation_scope", "observed_rows")})
+        if type(d.get("validation_population_metrics", True)) is not bool:
+            raise ValueError("validation_population_metrics must be boolean")
 
         for key in ("steps", "batch_size"):
             if type(d[key]) is not int or d[key] < 1:

@@ -135,6 +135,12 @@ def prepare_mmfm(raw):
         "conditional_model", "interpolation", "flow_variance", "coupling",
     })
     source_root = _resolved_path(params.get("source_root", MMFM_ROOT))
+    for filename in ("models.py", "multi_marginal_fm.py", "utils.py"):
+        if not (Path(source_root) / "src/mmfm" / filename).is_file():
+            raise FileNotFoundError(
+                f"Original MMFM source missing under {source_root}; set "
+                "FLOW2PC_MMFM_ROOT or model.params.source_root"
+            )
     seed = c.get("seed", 42)
     if type(seed) is not int or not 0 <= seed < 2**32:
         raise ValueError("seed must be an integer in [0, 2**32)")
@@ -209,10 +215,19 @@ def prepare_mmfm(raw):
     if not output.get("dir"):
         raise ValueError("output.dir is required")
     evaluation = {"enabled": True, "samples": 128, "projections": 32, "ode_substeps": 16, "seed": 1234,
-                  **mapping(c.get("evaluation", {}), "evaluation", {"enabled", "samples", "projections", "ode_substeps", "seed"})}
-    for key in ("samples", "projections", "ode_substeps"):
-        if type(evaluation[key]) is not int or evaluation[key] < 1:
+                  **mapping(c.get("evaluation", {}), "evaluation", {"enabled", "samples", "batch_size", "projections", "ode_substeps", "seed", "metric_space", "source_split", "reference_split", "time_indices", "solver", "tolerance", "max_nfe"})}
+    for key in ("samples", "batch_size", "projections", "ode_substeps", "max_nfe"):
+        if key in evaluation and (type(evaluation[key]) is not int or evaluation[key] < 1):
             raise ValueError(f"evaluation.{key} must be a positive integer")
+    if type(evaluation["enabled"]) is not bool:
+        raise ValueError("evaluation.enabled must be boolean")
+    if evaluation.get("metric_space", "dataset") not in ("dataset", "raw", "teacher"):
+        raise ValueError("Invalid evaluation.metric_space")
+    if evaluation.get("solver", "rk4") not in ("rk4", "dopri5", "euler"):
+        raise ValueError("Invalid evaluation.solver")
+    tolerance = float(evaluation.get("tolerance", 1e-5))
+    if not math.isfinite(tolerance) or tolerance <= 0:
+        raise ValueError("evaluation.tolerance must be finite and positive")
     wandb = {"mode": "disabled", **mapping(c.get("wandb", {}), "wandb", {"mode", "project", "group", "run_name"})}
     if wandb["mode"] not in ("disabled", "online", "offline"):
         raise ValueError("Invalid wandb.mode")

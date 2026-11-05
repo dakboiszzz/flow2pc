@@ -16,6 +16,7 @@ import torch
 import yaml
 
 from flow2pc.pretrain.models.alicfm.profiles import make_models, profile_for, train_knot
+from flow2pc.pretrain.models.alicfm.query_policy import training_sampler
 from flow2pc.utils.checkpoint import atomic_json, atomic_path, save_teacher, sha256
 from flow2pc.utils.seed import seed_everything
 from flow2pc.utils.tracking import LocalLogger
@@ -384,12 +385,7 @@ class ALICFM:
                         if native else f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages"
                     )
                 ),
-                "distillation_sampler": {
-                    "single_cell": "mmot_middle",
-                    "st": "independent",
-                    "knot": "independent",
-                    "cell_tracking": "border_ot",
-                }[cfg.profile],
+                "distillation_sampler": training_sampler(model_config),
             }
             if native:
                 manifest["native_training"] = {

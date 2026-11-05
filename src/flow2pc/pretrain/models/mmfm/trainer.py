@@ -15,8 +15,9 @@ from flow2pc.pretrain.models.mmfm.adapter import build_model, model_velocity
 from flow2pc.utils.metric_config import prepare_mmfm as prepare
 from flow2pc.pretrain.models.mmfm.sampling import MMFMPathSampler
 from flow2pc.utils.mfm_source import mmfm_provenance as provenance
-from flow2pc.utils.checkpoint import atomic_json, atomic_path
+from flow2pc.utils.checkpoint import atomic_json, atomic_path, restore_best_checkpoint
 from flow2pc.utils.seed import seed_everything
+from flow2pc.utils.tracking import LocalLogger, metric_logger_config, log_population_metrics
 
 
 def rng_state():
@@ -92,6 +93,9 @@ def run(config):
     if start >= training["epochs"]:
         raise ValueError("epochs must exceed the resumed epoch")
     output.mkdir(parents=True, exist_ok=True)
+    if resume:
+        restore_best_checkpoint(checkpoint, resume, output, binding_key="binding",
+                                progress_key="epoch", weights_only=True)
     atomic_json(output / "resolved_config.json", config)
     atomic_json(output / "manifest.json", {**metadata, "artifact_type": "teacher", "schema_version": 1})
     atomic_json(output / "status.json", {"status": "running"})
@@ -107,15 +111,8 @@ def run(config):
                 "epoch": epoch, "step": step, "best_validation_loss": best,
             }, temporary)
 
-    tracker = None
+    logger = LocalLogger(output, metric_logger_config(config, method="mmfm", stage="pretrain"), append=bool(resume))
     try:
-        if config["wandb"]["mode"] != "disabled":
-            import wandb
-            tracker = wandb.init(
-                project=config["wandb"].get("project", "flow2pc"),
-                mode=config["wandb"]["mode"], group=config["wandb"].get("group", "mmfm-pretrain"),
-                name=config["wandb"].get("run_name"), config=config, dir=str(output),
-            )
         log_path = output / "metrics.csv"
         fields = ["epoch", "step", "train_loss", "validation_loss", "learning_rate"]
         if log_path.exists() and log_path.stat().st_size:
@@ -161,8 +158,7 @@ def run(config):
                            validation_loss=score, learning_rate=optimizer.param_groups[0]["lr"])
                 writer.writerow(row)
                 stream.flush()
-                if tracker:
-                    tracker.log(row, step=step)
+                logger.log(row)
                 print(f"epoch={epoch} loss={row['train_loss']:.6g} validation={score:.6g}", flush=True)
         if config["evaluation"]["enabled"]:
             from flow2pc.evaluation.metric_flow import evaluate_teacher_checkpoint
@@ -170,15 +166,16 @@ def run(config):
             selected = output / "checkpoints/best.pt"
             if not selected.is_file() and resume:
                 selected = Path(resume).parent / "best.pt"
-            evaluate_teacher_checkpoint(selected, output_dir=output / "eval", device=device,
-                                        settings=config["evaluation"])
+            report = evaluate_teacher_checkpoint(selected, output_dir=output / "eval", device=device,
+                                                 settings=config["evaluation"])
+            log_population_metrics(logger, report, output=output / "eval")
         atomic_json(output / "status.json", {"status": "complete", "best_validation_loss": best, "step": step})
     except BaseException as error:
         atomic_json(output / "status.json", {"status": "failed", "error": str(error)})
+        logger.close(failed=True)
         raise
-    finally:
-        if tracker:
-            tracker.finish()
+    else:
+        logger.close()
     return output
 
 

@@ -57,6 +57,18 @@ def sample_ali_batch(teacher, dataset, pools, count, rng, sampler):
         # Native border OT samples matched edges with replacement.
         edges = torch.randint(count, (count,), generator=rng)
         x0, x1 = x0[rows][edges], x1[columns][edges]
+    elif sampler == "chain_ot":
+        from scipy.optimize import linear_sum_assignment
+        from scipy.spatial.distance import cdist
+
+        previous = x0
+        for index in sorted(i for i in dataset.observed if i > 0):
+            current = x1 if index == len(pools) - 1 else draw(pools[index], count, rng)
+            rows, columns = linear_sum_assignment(cdist(previous.numpy(), current.numpy(), "sqeuclidean"))
+            if not np.array_equal(rows, np.arange(count)):
+                raise ValueError("Full-chain OT requires equally sized endpoint batches")
+            previous = current[columns]
+        x1 = previous
     elif sampler != "independent":
         raise ValueError(f"Unsupported teacher query sampler {sampler!r}")
     times = torch.rand(count, generator=rng).to(device)

@@ -16,7 +16,8 @@ class LocalLogger:
         self.directory = Path(directory)
         self.mode = config["logging"]["mode"]
         self.resilient = (config.get("training", {}).get("protocol") == "marginal"
-                          or config.get("model", {}).get("name") == "otpfm")
+                          or config.get("stage") == "distill"
+                          or config.get("model", {}).get("name") in ("otpfm", "mfm", "mmfm"))
         self.tracking_errors = []
         self.offline = False
         self._finish_run = None
@@ -24,7 +25,13 @@ class LocalLogger:
         self.run = None
         try:
             if config["logging"]["mode"] != "disabled":
-                import wandb
+                try:
+                    import wandb
+                except ImportError as error:
+                    if not self.resilient:
+                        raise
+                    self.tracking_failed("W&B SDK import", error)
+                    return
 
                 metadata_path = directory / "wandb_run.json"
                 tracking = dict(config["logging"])
@@ -64,7 +71,7 @@ class LocalLogger:
                         handle = stack.enter_context(path.open("a"))
                         fcntl.flock(handle, fcntl.LOCK_EX)
                     init_options = ({"settings": {"init_timeout": 30}}
-                                    if config.get("model", {}).get("name") == "otpfm" else {})
+                                    if self.resilient else {})
                     try:
                         self.run = wandb.init(
                             **tracking, id=metadata["id"], config=config, dir=str(directory), **init_options
@@ -83,7 +90,7 @@ class LocalLogger:
                         except (wandb.errors.CommError, TimeoutError, ConnectionError) as offline_error:
                             self.tracking_failed("offline startup", offline_error)
                 self._finish_run = self.run
-                if config.get("model", {}).get("name") == "otpfm" and self.run is not None:
+                if self.resilient and self.run is not None:
                     guard_artifact_uploads(
                         self.run, (wandb.errors.CommError, TimeoutError, ConnectionError),
                         self.tracking_failed,
@@ -145,4 +152,56 @@ class LocalLogger:
             with self.remote("finish"):
                 self._finish_run.finish(exit_code=1 if failed else 0)
         self.write_tracking_status()
+
+
+def metric_logger_config(config, *, method, stage, dataset=None):
+    """Bridge the MFM/MMFM schema to the existing resilient local logger."""
+    options = dict(config.get("wandb", {}))
+    logging = {"mode": options.get("mode", "online"),
+               "project": options.get("project", "flow2pc")}
+    for old, new in (("run_name", "name"), ("group", "group")):
+        if options.get(old):
+            logging[new] = options[old]
+    if "name" not in logging:
+        dataset = dataset or config.get("dataset_profile", {}).get("profile")
+        dataset = dataset or config.get("dataset", {}).get("name", "dataset")
+        training = config.get("training", {})
+        seed = config.get("seed", training.get("seed", 42))
+        student = config.get("student", {})
+        structure = student.get("pc_structure", "hclt") if stage == "distill" else "teacher"
+        if stage == "distill":
+            width = student.get("num_components" if structure == "gaussian" else "num_latents", 64)
+        else:
+            width = config.get("model_config", {}).get("x_latent_dim", 64)
+        learning_rate = float(training.get("lr", .001))
+        logging["name"] = f"{dataset}-{method}-{structure}-h{width}-lr{learning_rate:g}-s{seed}"
+    return {"stage": stage, "model": {"name": method}, "logging": logging,
+            "experiment": config}
+
+
+def log_population_metrics(logger, report, *, namespace="eval", output=None):
+    """Keep prediction modes separate; publish saved images only when available."""
+    row = {f"{namespace}/{key}": value for key, value in report.items()
+           if isinstance(value, (int, float)) and not isinstance(value, bool)}
+    failures = {key: value for key, value in report.items() if key.endswith("_error")}
+    for index, scores in report.get("by_time", {}).items():
+        row.update({f"{namespace}/marginal_{index}/{key}": value
+                    for key, value in scores.items()
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)})
+        failures.update({f"marginal_{index}/{key}": value for key, value in scores.items()
+                         if key.endswith("_error")})
+    row[f"{namespace}/numerical_failures"] = len(failures)
+    if failures:
+        # Keep error messages locally as well as scalar failure counts remotely.
+        logger.log({f"{namespace}/errors": failures,
+                    f"{namespace}/checkpoint_step": report.get("checkpoint_step")})
+    if row:
+        logger.log(row)
+    if output is not None and logger.run is not None:
+        path = Path(output) / "media.json"
+        if path.is_file():
+            import wandb
+            with logger.remote("population comparison images"):
+                logger.run.log({f"{namespace}/{key}": wandb.Image(value)
+                                for key, value in json.loads(path.read_text()).items()})
 

@@ -34,7 +34,10 @@ def test_every_profile_has_three_configs_and_matching_pair(name):
         values = overrides(command)
         assert values["teacher.checkpoint"] == str(run / "checkpoints/flow.pt")
         assert values["teacher.params.geopath_checkpoint"] == str(run / "checkpoints/geopath.pt")
-        assert config["evaluation"]["enabled"] is False
+        assert config["evaluation"]["enabled"] is True
+        assert config["evaluation"]["metric_space"] == "dataset"
+        assert config["wandb"]["project"] == "flow2pc"
+        assert overrides(command)["wandb.mode"] == "online"
         assert "source_nll_weight" not in config["distillation"]
 
 

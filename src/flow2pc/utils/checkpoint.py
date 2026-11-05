@@ -2,6 +2,8 @@
 
 import hashlib
 import json
+import math
+import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -42,6 +44,37 @@ def atomic_json(path, value):
     with atomic_path(path) as temporary:
         temporary.write_text(json.dumps(value, indent=2, allow_nan=False) + "\n")
 
+
+def restore_best_checkpoint(
+    checkpoint, resume_path, output, *, binding_key="identity",
+    progress_key="step", weights_only=False,
+):
+    """Preserve selected weights when resuming into a different directory."""
+    score = float(checkpoint.get("best_validation_loss", math.inf))
+    if not math.isfinite(score):
+        return
+    resume_path = Path(resume_path).resolve()
+    destination = Path(output) / "checkpoints/best.pt"
+    candidates = [resume_path.parent / "best.pt", destination]
+    if resume_path.name == "best.pt":
+        candidates.insert(0, resume_path)
+    for path in candidates:
+        if not path.is_file():
+            continue
+        saved = torch.load(path, map_location="cpu", weights_only=weights_only)
+        if (saved.get(binding_key) != checkpoint.get(binding_key)
+                or saved.get("model_type") != checkpoint.get("model_type")
+                or saved.get("model_config") != checkpoint.get("model_config")
+                or float(saved.get("best_validation_loss", math.inf)) != score
+                or saved.get(progress_key, math.inf) > checkpoint[progress_key]):
+            continue
+        if path.resolve() != destination.resolve():
+            with atomic_path(destination) as temporary:
+                shutil.copyfile(path, temporary)
+        return
+    raise ValueError(
+        "Resume best score has no matching best.pt; restore its original selected weights"
+    )
 
 def validate_manifest(manifest):
     required = {

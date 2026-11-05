@@ -3,7 +3,6 @@ seed: 42
 model:
   name: mmfm
   params:
-    source_root: ../pretrain/MMFM
     conditional_model: false
     coupling: minibatch_ot
     interpolation: cubic
@@ -23,4 +22,5 @@ output:
 evaluation:
   enabled: true
 wandb:
-  mode: disabled
+  project: flow2pc
+  mode: online

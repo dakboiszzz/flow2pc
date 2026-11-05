@@ -14,6 +14,8 @@ student:
     num_components: 64
     time_order: 4
 distillation:
+  validation_scope: dataset
+  validation_population_metrics: true
   steps: 20000
   batch_size: 128
   lr: 0.001
@@ -27,12 +29,15 @@ seed: 42
 output:
   dir: outputs/runs/metric/multi_gaussian
 evaluation:
+  metric_space: dataset
+  solver: dopri5
+  samples: 2048
+  seed: 2026
   enabled: true
-  samples: 128
   projections: 32
   ode_substeps: 16
-  seed: 1234
   decode_images: false
   vae_path: checkpoints/metric_flow/vae
 wandb:
-  mode: disabled
+  project: flow2pc
+  mode: online
