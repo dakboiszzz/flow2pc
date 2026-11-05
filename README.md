@@ -47,6 +47,12 @@ paths selected by the configs. No MFM data or weights are downloaded.
 
 ## MFM integration
 
+ALI-CFM and OTP-FM teacher presets also support the prepared Arch/Sphere/LiDAR
+data, preserving the saved MFM splits. An eight-GPU launcher prepares 256
+configurations per dataset per method (1,536 teachers), with validation-only
+rankings, W&B logging and geometry figures. See
+[the teacher sweep and two-observation adaptations](docs/MFM_TEACHER_SWEEP.md).
+
 For all locally available datasets except AFHQ, the new snapshot workflow has
 20 profiles, including the H5AD EB PCA/PHATE representations, transport data and
 the three Gaussian exports. It supports paired MFM pretraining followed by HCLT

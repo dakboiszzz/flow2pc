@@ -59,6 +59,7 @@ for name, subdir in (
     ("cite", "single_cell"), ("multi", "single_cell"), ("eb", "single_cell"),
     ("st", "spatial_transcriptomics"), ("cell_tracking", "cell_tracking"),
     ("knot", "knot"),
+    ("arch", "arch"), ("sphere", "sphere"), ("lidar", "lidar"),
 ):
     register_profile(name, MarginalProfile(subdir))
 

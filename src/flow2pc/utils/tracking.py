@@ -15,7 +15,7 @@ class LocalLogger:
     def __init__(self, directory, config, append=False):
         self.directory = Path(directory)
         self.mode = config["logging"]["mode"]
-        self.resilient = (config.get("training", {}).get("protocol") == "marginal"
+        self.resilient = (config.get("training", {}).get("protocol") in ("marginal", "endpoints")
                           or config.get("stage") == "distill"
                           or config.get("model", {}).get("name") in ("otpfm", "mfm", "mmfm"))
         self.tracking_errors = []

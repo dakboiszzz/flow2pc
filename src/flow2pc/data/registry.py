@@ -1,6 +1,11 @@
 from flow2pc.utils.registry import Registry
 
 datasets = Registry("dataset")
+for name in ("arch", "sphere", "lidar"):
+    datasets.register(
+        name, "flow2pc.data.synthetic.prepared_mfm:PreparedMFMMarginals",
+        "Existing MFM snapshots and saved splits; no regeneration or preprocessing refit.",
+    )
 for name in ("gom", "beijing"):
     datasets.register(
         name, "flow2pc.data.real.transport:TransportMarginals",

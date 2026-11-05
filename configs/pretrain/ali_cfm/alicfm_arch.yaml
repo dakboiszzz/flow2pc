@@ -1,0 +1,60 @@
+# Saved MFM splits: endpoint-only adaptation; no interior observations are invented.
+stage: pretrain
+seed: 42
+model:
+  name: alicfm
+  params:
+    profile: single_cell
+    cfm_dim: 128
+    interpolant_dim: 128
+    disc_dim: 128
+    t_smooth: 0.0
+    pretain_ot: border
+    interpolant_ot: border
+    cfm_ot: border
+    correct_coeff: 1.0
+    reg_metric: l2
+    land_gamma: 2.0e-08
+    land_t_gamma: 2.0e-08
+    land_epsilon: 1.0e-06
+    reg_term_type: 2nd_derivative
+    num_t_steps: 3
+    finite_difference_h: 0.001
+    gan_loss: vanilla
+    r3gan_gamma: 1.0
+data:
+  name: arch
+  root: ${FLOW2PC_MFM_DATA_ROOT}/prepared/arch/seed42
+  params: {}
+training:
+  protocol: endpoints
+  device: cuda:0
+  batch_size: 128
+  num_ali_pretrain_steps: 0
+  pretrain_lr: 0.001
+  num_ali_train_steps: 10000
+  interpolant_gen_lr: 0.0001
+  interpolant_disc_lr: 0.0001
+  num_cfm_train_steps: 30000
+  cfm_lr: 0.001
+  scalar_log_every: 100
+logging:
+  mode: online
+  project: flow2pc
+  name: arch-alicfm-endpoints-base-s42
+output:
+  dir: ${FLOW2PC_OUTPUT_ROOT}/mfm-teachers/alicfm/arch/base-s42
+evaluation:
+  enabled: true
+  num_samples: 512
+  metric_samples: 512
+  batch_size: 128
+  seed: 2026
+  solver: dopri5
+  tolerance: 1.0e-05
+  ode_steps: 100
+  max_nfe: 20000
+  metric_space: historical
+  source_split: all
+  reference_split: all
+  protocol: shared_ode

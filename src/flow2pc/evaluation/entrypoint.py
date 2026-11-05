@@ -69,7 +69,10 @@ def run(config, role):
         }
     logger = LocalLogger(run_dir, tracking_config, append=True)
     try:
-        result = evaluate(
+        evaluator = evaluate
+        if config["stage"] == "pretrain" and dataset.metadata.name in ("arch", "sphere", "lidar"):
+            from flow2pc.evaluation.prepared_mfm import evaluate as evaluator
+        result = evaluator(
             teacher,
             dataset,
             settings,

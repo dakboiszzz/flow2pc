@@ -68,7 +68,7 @@ class ALICFM:
     def validate(self, config):
         model, train = config["model"]["params"], config["training"]
         optional_model = {"profile", "cfm_coordinates"}
-        optional_training = {"samples_per_marginal", "protocol"}
+        optional_training = {"samples_per_marginal", "protocol", "scalar_log_every"}
         if (
             set(model) - optional_model != MODEL_KEYS
             or set(train) - TRAIN_KEYS - optional_training
@@ -133,8 +133,20 @@ class ALICFM:
             raise ValueError("Unsupported ALI-CFM coupling")
         profile = profile_for(config["data"]["name"])
         protocol = train.get("protocol", "framework")
-        if protocol not in ("framework", "native", "marginal"):
+        if protocol not in ("framework", "native", "marginal", "endpoints"):
             raise ValueError("Unknown ALI-CFM training protocol")
+        if protocol == "endpoints":
+            if config["data"]["name"] not in ("arch", "sphere", "lidar"):
+                raise ValueError("Endpoint protocol currently supports prepared Arch/Sphere/LiDAR")
+            if (train["num_ali_pretrain_steps"] != 0 or model["reg_term_type"] != "2nd_derivative"
+                    or model["correct_coeff"] <= 0 or model["reg_metric"] != "l2"
+                    or any(model[key] not in ("none", "border", "full")
+                           for key in ("pretain_ot", "interpolant_ot", "cfm_ot"))):
+                raise ValueError("Endpoint ALI uses no regression/GAN, positive existing L2 curvature regularization, and endpoint coupling")
+        elif config["data"]["name"] in ("arch", "sphere", "lidar"):
+            raise ValueError("Prepared MFM two-observation datasets require explicit protocol: endpoints")
+        if "scalar_log_every" in train and (type(train["scalar_log_every"]) is not int or train["scalar_log_every"] < 1):
+            raise ValueError("scalar_log_every must be a positive integer")
         if protocol == "marginal":
             if config["data"]["name"] not in ("gom", "beijing"):
                 raise ValueError("The marginal adaptation is for GOM/Beijing")
@@ -312,19 +324,24 @@ class ALICFM:
         atomic_json(run_dir / "status.json", {"status": "running"})
         logger = None
         try:
-            if native:
+            preserve_rng = native or cfg.get("protocol") == "endpoints"
+            if preserve_rng:
                 # The native driver initializes W&B before seeding. Our logger
                 # starts later, so preserve the post-model random streams.
                 rng = (random.getstate(), np.random.get_state(), torch.get_rng_state())
                 cuda_rng = torch.cuda.get_rng_state(device) if torch.device(device).type == "cuda" else None
             logger = LocalLogger(run_dir, config)
-            if native:
+            if preserve_rng:
                 random.setstate(rng[0])
                 np.random.set_state(rng[1])
                 torch.set_rng_state(rng[2])
                 if cuda_rng is not None:
                     torch.cuda.set_rng_state(cuda_rng, device)
-            if cfg.profile == "knot":
+            if cfg.get("protocol") == "endpoints":
+                from .endpoints import train
+
+                train(interpolant, field, optimizers, ot_sampler, clouds, dataset, cfg, logger)
+            elif cfg.profile == "knot":
                 train_knot(
                     interpolant, discriminator, field, optimizers, dataset, cfg, logger
                 )
@@ -375,7 +392,8 @@ class ALICFM:
                 "code_revision": revision,
                 "source_provenance": provenance,
                 "teacher_subset_indices": subset_indices,
-                "training_protocol": (
+                "training_protocol": ("two_observation_adaptation; existing_generator_curvature_regularizer_then_native_CFM; no_GAN; saved_MFM_train_rows"
+                    if cfg.get("protocol") == "endpoints" else (
                     "knot; native_full_curve_numpy_batches; raw_coordinates; GAN_then_CFM"
                     if cfg.profile == "knot"
                     else (
@@ -384,9 +402,17 @@ class ALICFM:
                          f"one_fold; {cfg.profile}; native_observed_pools; native_sequential_preprocessing; native_callbacks")
                         if native else f"one_fold; {cfg.profile}; train_only_affine_scaling; original_method_stages"
                     )
-                ),
+                )),
                 "distillation_sampler": training_sampler(model_config),
             }
+            if cfg.get("protocol") == "endpoints":
+                manifest["dataset_adaptation"] = {
+                    "name": "two_observation_regularizer_then_CFM",
+                    "implementation_sha256": sha256(Path(__file__).with_name("endpoints.py")),
+                    "interior_GAN_active": False,
+                    "training_rows": "saved_MFM_train_indices_only",
+                    "geometry_reference_used_by_objective": False,
+                }
             if native:
                 manifest["native_training"] = {
                     "observed_indices": dataset.observed,
@@ -430,8 +456,11 @@ class ALICFM:
             )
             if config.get("evaluation", {}).get("enabled", False):
                 from flow2pc.evaluation.runner import evaluate
+                evaluator = evaluate
+                if cfg.get("protocol") == "endpoints":
+                    from flow2pc.evaluation.prepared_mfm import evaluate as evaluator
 
-                evaluate(
+                evaluator(
                     self.load(checkpoint, device),
                     dataset,
                     config["evaluation"],

@@ -166,6 +166,7 @@ def fit(dataset, config, run_dir):
             "observed_indices": observed, "heldout_indices": holdout,
             "model_times": list(dataset.metadata.model_times), "physical_times": list(dataset.metadata.physical_times),
             "potential_times": native["tks"], "training_rows": split,
+            "potential_correction_active": bool(native["tks"]),
             "fixed_subset_indices": subset_indices, "has_observed_trajectory_ids": False,
             "coupling": "native independent marginal permutations; reshuffled each epoch",
             "knot_training": "fresh independent analytic noise at all knots" if dataset.metadata.name == "knot" else None,
@@ -174,6 +175,11 @@ def fit(dataset, config, run_dir):
             "selection": "final EMA teacher; sweep ranks configurations by the specified W1 EMD",
             "validation_loss": "empty native validation loader; zero is not a validation score",
         }
+        if not native["tks"]:
+            sampling["two_observation_adaptation"] = True
+            sampling["geometry_reference_used_by_objective"] = False
+            logger.log({"protocol/interior_potential_active": 0,
+                        "protocol/observed_times": len(observed)})
         atomic_json(run_dir / "sampling_contract.json", sampling)
         potentials = create_potentials(native)
         model = create_model(native, dataset.dim, potentials, config["training"]["device"])
@@ -181,7 +187,7 @@ def fit(dataset, config, run_dir):
             model=model, train_loader=loader, val_loader=[], save_dir=run_dir,
             lr=native["lr"], epochs=native["epochs"], optimizer="adam", grad_clip=0.0,
             weight_decay=native.get("weight_decay", 0.0), lr_schedule=native.get("lr_schedule"),
-            do_otp=True, otp_alpha_type="sigmoid", otp_alpha_slope=native.get("otp_alpha_slope", 6.0),
+            do_otp=bool(potentials), otp_alpha_type="sigmoid", otp_alpha_slope=native.get("otp_alpha_slope", 6.0),
             otp_alpha_mean_scale=native["otp_alpha_mean_scale"], potentials=potentials,
             device=config["training"]["device"], traj_skips=native["epochs"], save_skips=native["epochs"],
         )
@@ -206,7 +212,10 @@ def fit(dataset, config, run_dir):
 
         bound = json.loads((run_dir / "manifest.json").read_text())
         teacher = FrozenOTPFM(model, bound, dataset.preprocessing)
-        result = evaluate(teacher, dataset, config["evaluation"], run_dir / "eval", logger=logger)
+        evaluator = evaluate
+        if dataset.metadata.name in ("arch", "sphere", "lidar"):
+            from flow2pc.evaluation.prepared_mfm import evaluate as evaluator
+        result = evaluator(teacher, dataset, config["evaluation"], run_dir / "eval", logger=logger)
         atomic_json(run_dir / "result.json", result)
         trainer.plot_losses(show=False)
         trainer.save_losses_csv()
