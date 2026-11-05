@@ -120,6 +120,19 @@ the matching historical ALI-CFM implementation, rather than changing its
 regularizer. See [dataset support, commands and limitations](docs/ALICFM_DATASETS.md),
 including how to use existing checkpoints with their original preprocessing.
 
+Student validation supports whole held-out times as well as cell splits within
+observed times. When temporal holdouts exist, checkpoint selection uses the mean
+student/teacher velocity MSE across held-out times, querying each cell at its
+recorded model time. Each time receives equal weight; a fixed seeded subset of
+at most `validation_batches * validation_batch_size` cells is used per time.
+GOM/Beijing therefore need no separate validation-cell split. Held-out cells
+remain excluded from student gradient updates. Existing row-validation queries
+are retained as diagnostics where available. Without temporal holdouts, the
+existing selection rule remains in use, including late-time tracking checks.
+The temporal validation protocol is bound to student checkpoints; older students
+selected with a different criterion require a fresh output directory. EMD and
+comparison figures remain part of post-training evaluation.
+
 To check the complete teacher-to-student workflow, with reference and comparison
 images logged to W&B project `flow2pc`:
 

@@ -22,7 +22,11 @@ from flow2pc.distill.student import (
     learn_topology,
     student_config,
 )
-from flow2pc.distill.validation import prepare_validation, validate
+from flow2pc.distill.validation import (
+    prepare_validation,
+    temporal_validation_contract,
+    validate,
+)
 from flow2pc.pretrain.models.alicfm.trainer import LocalLogger
 from flow2pc.pretrain.models.mfm.checkpoint_adapter import load_teacher as load_mfm_teacher
 from flow2pc.pretrain.runner import load_teacher
@@ -110,14 +114,25 @@ def _run_ali(config):
         "objective": "teacher_velocity_MSE_only",
         "clamp_scale_derivative": clamp_derivative,
     }
+    temporal_validation = temporal_validation_contract(dataset, cfg)
+    if temporal_validation is not None:
+        # Do not compare a resumed row-validation best score with the new
+        # temporal criterion. Runs without holdouts retain their old binding.
+        binding["validation_protocol"] = temporal_validation
     last_path = output / "checkpoints/last.pt"
     previous = (
         torch.load(last_path, map_location="cpu", weights_only=True)
         if last_path.exists()
         else None
     )
-    if previous is not None and previous["binding"] != binding:
-        raise ValueError("Resume teacher/data/model/training binding changed")
+    if previous is not None:
+        if previous["binding"].get("validation_protocol") != temporal_validation:
+            raise ValueError(
+                "Resume validation protocol changed; use a fresh output.dir "
+                "rather than comparing scores from different validation protocols"
+            )
+        if previous["binding"] != binding:
+            raise ValueError("Resume teacher/data/model/training binding changed")
     parents = (
         previous["model_config"]["parents"]
         if previous
