@@ -5,7 +5,6 @@ from __future__ import annotations
 import random
 import math
 from contextlib import contextmanager
-from dataclasses import dataclass, field
 from numbers import Real
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +13,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from flow2pc.data.metric_base import DatasetBundle
+from flow2pc.data.metric_base import MetricDatasetBundle
 from flow2pc.utils.mfm_source import (
     fingerprint,
     sample_shape,
@@ -31,20 +30,6 @@ FILES = {
     "eb": "eb_velocity_v5.npz",
     "lidar": "rainier2-thin.las",
 }
-
-
-@dataclass
-class MetricDatasetBundle(DatasetBundle):
-    marginals: list = field(default_factory=list)
-    train_marginals: list = field(default_factory=list)
-    validation_marginals: list = field(default_factory=list)
-    heldout_indices: list = field(default_factory=list)
-    normalization: dict = field(default_factory=dict)
-    split_indices: dict = field(default_factory=dict)
-
-    @property
-    def observed_indices(self):
-        return [i for i in range(len(self.marginals)) if i not in self.heldout_indices]
 
 
 @contextmanager
@@ -192,7 +177,10 @@ def load_afhq(config, metadata):
 
 
 def load(name, config, context):
-    metadata = context["teacher_metadata"]
+    # Pretraining has no teacher checkpoint. Both callers use the same data profile.
+    metadata = context.get("dataset_profile") or context.get("teacher_metadata")
+    if metadata is None:
+        raise ValueError("Metric data requires dataset_profile or teacher_metadata")
     args = metadata["args"]
     validate_dataset(args, name)
     shape = sample_shape(args)
@@ -291,6 +279,11 @@ def load(name, config, context):
         normalization=normalization,
         split_indices=splits,
     )
+
+
+def load_registered(config, context):
+    """Load a registered metric dataset without a per-dataset wrapper module."""
+    return load(config["name"].lower(), config, context)
 
 
 def _tensor_fingerprint(values):

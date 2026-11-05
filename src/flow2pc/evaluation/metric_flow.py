@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from flow2pc.utils.checkpoint import atomic_json
+
 
 @contextmanager
 def evaluation_seed(seed, device):
@@ -70,7 +72,7 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
             initial = (
                 source[torch.randint(len(source), (samples,))].flatten(1).to(device)
             )
-            times = data.times.to(device)
+            times = data.times.to(initial)
             teacher_path = integrate(
                 lambda x, t: teacher.velocity(x, t), initial, times, steps
             )
@@ -85,7 +87,11 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
             }
             direct_samples = []
             for index, t in enumerate(times):
-                values = data.validation_marginals[index]
+                values = (
+                    data.test_marginals[index]
+                    if hasattr(data, "test_marginals") and index in data.heldout_indices
+                    else data.validation_marginals[index]
+                )
                 reference = (
                     values[torch.randint(len(values), (samples,))].flatten(1).to(device)
                 )
@@ -108,8 +114,6 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
                     .square()
                     .mean()
                     .item(),
-                    "nll_per_dimension": -student.log_prob(reference, t).mean().item()
-                    / data.dim,
                 }
                 if "mean" in data.normalization:
                     mean = torch.tensor(data.normalization["mean"], device=device)
@@ -154,30 +158,32 @@ def evaluate(student, teacher, data, settings, device, output_dir=None):
 
 
 def evaluate_checkpoint(
-    checkpoint_path, *, output_dir=None, settings=None, device="cpu"
+    checkpoint_path, *, output_dir=None, settings=None, device="cpu", role="student"
 ):
-    """Evaluate or decode an existing student without another training step."""
-    import json
+    """Evaluate an MFM/MMFM student or an unconditional MMFM teacher."""
+    if role == "teacher":
+        return evaluate_teacher_checkpoint(
+            checkpoint_path, output_dir=output_dir, device=device, settings=settings
+        )
+    if role != "student":
+        raise ValueError(f"Unknown evaluation role: {role!r}")
 
+    from flow2pc.distill.runner import _identity, load_resources
+    from flow2pc.distill.student import build_student_from_config
     from flow2pc.utils.experiment import ExperimentConfig
-    from flow2pc.distill.mfm import (
-        _identity,
-        build_student,
-        load_resources,
-        validate_config,
-    )
+    from flow2pc.utils.mfm_config import checkpoint_training_config, validate_config
 
     checkpoint_path = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
-    if checkpoint.get("model_type") != "metric_pc_distill":
-        raise ValueError("Expected a metric_pc_distill student checkpoint")
-    config = ExperimentConfig(**checkpoint["training_config"])
+    if checkpoint.get("model_type") not in {"metric_pc_distill", "mmfm_pc_distill"}:
+        raise ValueError("Expected an MFM- or MMFM-distilled student checkpoint")
+    config = ExperimentConfig(**checkpoint_training_config(checkpoint))
     validate_config(config)
     device = torch.device(device)
     teacher, data = load_resources(config, device)
     if checkpoint["identity"] != _identity(teacher, data):
         raise ValueError("Teacher/data identity differs from the distilled checkpoint")
-    student = build_student(checkpoint["model_config"]).to(device)
+    student = build_student_from_config(checkpoint["model_config"]).to(device)
     student.load_state_dict(checkpoint["state_dict"])
     destination = (
         Path(output_dir)
@@ -193,17 +199,68 @@ def evaluate_checkpoint(
         device,
         destination,
     )
-    (destination / "evaluation.json").write_text(
-        json.dumps(report, indent=2, allow_nan=False) + "\n"
-    )
+    if checkpoint["model_type"] == "mmfm_pc_distill":
+        save_figures(destination)
+    atomic_json(destination / "evaluation.json", report)
     return report
+
+
+def evaluate_teacher_checkpoint(checkpoint, *, output_dir=None, device='cpu', settings=None):
+    """Evaluate an unconditional MMFM teacher using shared ODE metrics."""
+    from flow2pc.pretrain.models.mmfm.adapter import load_teacher, load_teacher_data
+    options = {'samples': 128, 'projections': 32, 'ode_substeps': 16, 'seed': 1234, **(settings or {})}
+    device = torch.device(device)
+    teacher = load_teacher({'checkpoint_path': str(checkpoint)}, device)
+    data = load_teacher_data(teacher)
+    destination = Path(output_dir or Path(checkpoint).resolve().parents[1] / 'reevaluation')
+    destination.mkdir(parents=True, exist_ok=True)
+    with evaluation_seed(options['seed'], device), torch.no_grad():
+        source = data.validation_marginals[0]
+        initial = source[torch.randint(len(source), (options['samples'],))].to(device)
+        trajectory = integrate(teacher.velocity, initial, data.times.to(device), options['ode_substeps'])
+        scores = {}
+        for i in range(len(data.times)):
+            pool = data.test_marginals[i] if hasattr(data, 'test_marginals') and i in data.heldout_indices else data.validation_marginals[i]
+            reference = pool[torch.randint(len(pool), (options['samples'],))].to(device)
+            scores[str(i)] = {'teacher_ode_swd': sliced_wasserstein(trajectory[i], reference, options['projections']), 'heldout': i in data.heldout_indices}
+        np.savez_compressed(destination / 'trajectories.npz', teacher_ode=trajectory.cpu().numpy(), times=data.times.numpy())
+    report = {'method': 'mmfm', 'by_time': scores, 'times': data.times.tolist()}
+    save_figures(destination)
+    atomic_json(destination / 'evaluation.json', report)
+    return report
+
+
+def save_figures(directory):
+    """Render saved ODE paths; high-dimensional datasets show coordinates 1 and 2."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    directory = Path(directory)
+    with np.load(directory / 'trajectories.npz') as arrays:
+        times = arrays['times']
+        for name in ('teacher_ode', 'student_ode'):
+            if name not in arrays:
+                continue
+            paths = arrays[name]
+            fig = plt.figure(figsize=(7, 5))
+            ax = fig.add_subplot(111, projection='3d' if paths.shape[-1] == 3 else None)
+            for i in range(min(64, paths.shape[1])):
+                if paths.shape[-1] == 1:
+                    ax.plot(times, paths[:, i, 0], alpha=0.3)
+                elif paths.shape[-1] == 3:
+                    ax.plot(*paths[:, i, :3].T, alpha=0.3)
+                else:
+                    ax.plot(*paths[:, i, :2].T, alpha=0.3)
+            ax.set_title(name + ' (teacher input coordinates)')
+            fig.savefig(directory / f'{name}.png', dpi=160, bbox_inches='tight')
+            plt.close(fig)
 
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Evaluate an MFM-distilled PC; optional shared AFHQ VAE decode"
+        description="Evaluate an MFM/MMFM-distilled PC; optional shared AFHQ VAE decode"
     )
     parser.add_argument("--student-checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path)

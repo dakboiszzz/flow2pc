@@ -1,0 +1,49 @@
+# Snapshot protocol v1; native parameter starting point: configs/pretrain/mfm/upstream/single_cell/5dims/ot-mfm_eb.yaml
+# New adaptations are not claims of published reproduction.
+stage: pretrain
+seed: 42
+model:
+  name: mfm
+  params:
+    backend: snapshots
+    source_root: ../pretrain/metric-flow-matching
+    native:
+      hidden_dims_geopath:
+      - 64
+      - 64
+      - 64
+      hidden_dims_flow:
+      - 64
+      - 64
+      - 64
+      activation_geopath: selu
+      activation_flow: selu
+      time_geopath: true
+      sigma: 0.1
+      optimal_transport_method: exact
+      velocity_metric: land
+      gamma_current: 0.125
+      rho: 0.001
+      alpha_metric: 2
+      geopath_optimizer: adam
+      geopath_lr: 0.0001
+      geopath_weight_decay: 1.0e-05
+      flow_optimizer: adamw
+      flow_lr: 0.001
+      flow_weight_decay: 1.0e-05
+data:
+  name: mfm_snapshots
+  root: data/mfm/prepared/beijing/seed42
+  params:
+    profile: beijing
+training:
+  epochs: 1000
+  batch_size: 128
+  device: cuda:0
+  patience_geopath: 5
+  patience_flow: 5
+  validate_every: 1
+output:
+  dir: outputs/mfm/beijing/default/pretrain
+wandb:
+  mode: disabled

@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "ruff>=0.11"]
+mmfm = ["addict>=2.4", "seaborn>=0.13"]
 single-cell = ["h5py>=3.10", "POT>=0.9"]
 alicfm = ["h5py>=3.10", "POT>=0.9", "pandas>=2.2", "scikit-learn>=1.5"]
 metric = [
@@ -39,6 +40,11 @@ metric = [
   "diffusers>=0.27",
   "safetensors>=0.4",
   "torchdyn>=1.0.6",
+  # Imported by upstream MFM's shared vector/image trainer, even for vector data.
+  "lpips>=0.1.4",
+  "phate>=1.0",
+  "scprep>=1.2.3",
+  "fld @ git+https://github.com/marcojira/fld.git@ffbbf2041115814fd1074f0117bcb96c5af840b7",
 ]
 
 [tool.setuptools]

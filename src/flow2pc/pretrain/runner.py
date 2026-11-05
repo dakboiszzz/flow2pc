@@ -8,6 +8,10 @@ from flow2pc.pretrain.registry import teachers
 
 
 def prepare(config):
+    if config["model"]["name"] == "mmfm":
+        from flow2pc.utils.metric_config import prepare_mmfm
+
+        return teachers.get("mmfm")(), prepare_mmfm(config)
     if config["model"]["name"] == "mfm":
         from flow2pc.pretrain.models.mfm.trainer import prepare as prepare_mfm
 

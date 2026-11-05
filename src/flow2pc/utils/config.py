@@ -70,11 +70,11 @@ def resolve_config(raw, *, base):
     if isinstance(raw, dict) and (raw.get("stage") == "evaluate" or (
         raw.get("stage") == "pretrain"
         and isinstance(raw.get("model"), dict)
-        and raw["model"].get("name") == "mfm"
+        and raw["model"].get("name") in ("mfm", "mmfm")
     ) or (
         raw.get("stage") == "distill"
         and isinstance(raw.get("teacher"), dict)
-        and raw["teacher"].get("name") == "mfm"
+        and raw["teacher"].get("name") in ("mfm", "mmfm")
     )):
         from flow2pc.utils.metric_config import prepare
 

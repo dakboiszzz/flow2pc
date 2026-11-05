@@ -18,7 +18,6 @@ distillation:
   batch_size: 16
   lr: 0.001
   device: auto
-  source_nll_weight: 1.0
   gradient_clip: 1.0
   log_every: 100
   validate_every: 1000

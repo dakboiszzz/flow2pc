@@ -15,8 +15,8 @@ class ExperimentConfig:
 
 
 def run_experiment(config):
-    from flow2pc.distill.mfm import run
+    from flow2pc.distill.runner import run
 
-    if config.teacher.get("name") != "metric_flow":
-        raise ValueError("This runner only supports MFM")
+    if config.teacher.get("name") not in ("metric_flow", "mmfm"):
+        raise ValueError("This runner supports MFM and MMFM")
     return run(config)

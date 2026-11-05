@@ -1,0 +1,26 @@
+stage: pretrain
+seed: 42
+model:
+  name: mmfm
+  params:
+    source_root: ../pretrain/MMFM
+    conditional_model: false
+    coupling: minibatch_ot
+    interpolation: cubic
+    flow_variance: adaptive2-4-0.01
+data:
+  name: mfm_snapshots
+  root: data/mfm/prepared/cell_tracking/seed42
+  params:
+    profile: cell_tracking
+training:
+  epochs: 300
+  batch_size: 128
+  lr: 0.01
+  device: auto
+output:
+  dir: outputs/mmfm/cell_tracking/pretrain
+evaluation:
+  enabled: true
+wandb:
+  mode: disabled

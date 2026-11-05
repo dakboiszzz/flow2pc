@@ -3,7 +3,7 @@
 import torch
 
 from flow2pc.data.base import heldout_indices
-from flow2pc.distill.sampling import draw, sample_batch
+from flow2pc.distill.sampling import draw, sample_ali_batch
 
 
 def temporal_validation_contract(dataset, settings):
@@ -45,7 +45,7 @@ def prepare_validation(teacher, dataset, pools, settings, seed, sampler):
     if all(len(pools[i]) for i in required):
         # Retain the existing observed-time row-validation diagnostic.
         batches = [
-            sample_batch(
+            sample_ali_batch(
                 teacher,
                 dataset,
                 pools,

@@ -1,6 +1,24 @@
-"""Original MFM schema validation; does not load models or data."""
+"""Metric distillation schema validation; does not load models or data."""
+from copy import deepcopy
 import math
+
 from flow2pc.utils.combinations import validate_combination
+
+
+def checkpoint_training_config(checkpoint, *, resume=False):
+    """Normalize legacy metadata in memory; never rewrite checkpoint artifacts."""
+    config = deepcopy(checkpoint["training_config"])
+    training = config["training"]
+    legacy_weights = [
+        container["source_nll_weight"]
+        for container in (checkpoint, training)
+        if "source_nll_weight" in container
+    ]
+    if resume and any(float(weight) != 0.0 for weight in legacy_weights):
+        raise ValueError("Cannot resume a legacy checkpoint with nonzero source NLL weight")
+    training.pop("source_nll_weight", None)
+    return config
+
 
 def validate_config(config):
     """Validate configuration only; never open data, source models, or weights."""
@@ -8,7 +26,15 @@ def validate_config(config):
     if config.task != "distill":
         raise ValueError("metric_flow supports pretrained-teacher distillation only")
     required = config.teacher.get("checkpoint_path")
-    if not required or not config.teacher.get("options", {}).get("geopath_checkpoint"):
+    if config.teacher["name"] == "mmfm":
+        if not required:
+            raise ValueError("MMFM requires teacher.checkpoint")
+        options = config.teacher.get("options", {})
+        if set(options) - {"source_root"}:
+            raise ValueError("MMFM teacher options only support source_root; no geopath is required")
+        if config.dataset.get("options"):
+            raise ValueError("MMFM distill restores data options from its teacher checkpoint")
+    elif not required or not config.teacher.get("options", {}).get("geopath_checkpoint"):
         raise ValueError(
             "metric_flow config must specify checkpoint_path and options.geopath_checkpoint"
         )
@@ -37,7 +63,6 @@ def validate_config(config):
             "device",
             "output_dir",
             "resume_checkpoint",
-            "source_nll_weight",
             "gradient_clip",
             "log_every",
             "validate_every",
@@ -72,9 +97,6 @@ def validate_config(config):
         value = float(config.training.get(key, default))
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{key} must be finite and positive")
-    weight = float(config.training.get("source_nll_weight", 1.0))
-    if not math.isfinite(weight) or weight < 0:
-        raise ValueError("source_nll_weight must be finite and nonnegative")
     for key, default in (("samples", 128), ("projections", 32), ("ode_substeps", 8)):
         if int(config.evaluation.get(key, default)) < 1:
             raise ValueError(f"evaluation.{key} must be positive")

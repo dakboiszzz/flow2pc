@@ -1,8 +1,7 @@
 # Flow2PC
 
 Flow2PC distills frozen flow-matching velocity fields into time-dependent
-probabilistic circuits. ALI-CFM uses teacher-velocity MSE; MFM uses velocity
-MSE plus a configurable source-marginal NLL term.
+probabilistic circuits. ALI-CFM and MFM use teacher-velocity MSE.
 
 ## Retained code
 
@@ -48,6 +47,24 @@ paths selected by the configs. No MFM data or weights are downloaded.
 
 ## MFM integration
 
+For all locally available datasets except AFHQ, the new snapshot workflow has
+20 profiles, including the H5AD EB PCA/PHATE representations, transport data and
+the three Gaussian exports. It supports paired MFM pretraining followed by HCLT
+or Gaussian PC distillation:
+
+```bash
+python scripts/run_mfm_data.py list
+python scripts/run_mfm_data.py both all --student both --dry-run
+python scripts/run_mfm_data.py both cite50 --student both --device cuda:0 --run-name exp1
+```
+
+The last command prepares snapshots and starts training. Data sources are linked
+under `data/mfm/sources/`; outputs go under `outputs/mfm/`. New recipes use
+train-only normalization and exclude temporal test holdouts from checkpoint
+selection. See [the complete catalog, commands and protocol](docs/MFM_LOCAL_DATA.md).
+Runtime and numerical behavior remain unverified; no model jobs or tests were
+run during implementation. The older workflow below remains available.
+
 MFM pretraining delegates to the original two-phase geopath/flow trainer:
 
 ```bash
@@ -65,17 +82,28 @@ at matching flow and geopath checkpoints, then inspect it with:
 PYTHONPATH=src python main.py --config configs/distill/mfm/arch/hclt.yaml --validate-only
 ```
 
-MFM distillation supports HCLT and Gaussian students. Its source NLL weight
-is recorded in the config and student checkpoint; `0` selects velocity MSE
-alone. The HCLT `log_scale` is not clamped. MFM's physical observation labels,
+MFM distillation supports HCLT and Gaussian students with velocity MSE only.
+The HCLT `log_scale` is not clamped. MFM's physical observation labels,
 normalized model times and preprocessing metadata are kept separate. See
 [MFM integration notes](docs/MFM_INTEGRATION.md) for datasets and limitations.
 
 MMFM and the MNIST latent pipeline are not integrated in this checkout.
 
-The existing real data lives in `/data/lthung/ali-cfm-data`; configure `data.root`
-or `FLOW2PC_DATA_ROOT` on other systems. Data, weights and results remain outside
-the code checkout.
+For the unified local bundle in `data/`, use the launcher below. It overrides the
+historical `/data/lthung/...` paths, pairs the ALI-CFM teacher/student checkpoints,
+and writes results under `outputs/local/`:
+
+```bash
+python scripts/run_local_data.py both cite50 --dry-run
+python scripts/run_local_data.py both cite50 --device cuda:0 --run-name experiment1
+```
+
+The second command starts training and the recipes' evaluation. See
+[local dataset commands and current limits](docs/LOCAL_DATA.md) for individual
+stages, OTP-FM pretraining and unsupported distillation combinations. Data and
+results under the repository remain Git-ignored. Existing historical configs
+still accept explicit `data.root` overrides; their explicit roots take precedence
+over `FLOW2PC_DATA_ROOT`.
 
 Prepared ALI-CFM teacher and student commands:
 
